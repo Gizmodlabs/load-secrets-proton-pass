@@ -23,17 +23,11 @@ case "$1" in
     fi
     URI="$3"
     case "$URI" in
-      *Production*Database*password*)
-        echo "mock-db-password-12345"
+      *GithubActions*load-secrets-proton-pass-test*Password*)
+        echo "mock-real-password"
         ;;
-      *Work*Stripe*api_key*)
-        echo "sk_test_mock_stripe_key"
-        ;;
-      *Production*SSH*private_key*)
-        printf '%s\n' "-----BEGIN OPENSSH PRIVATE KEY-----" \
-          "mock-key-line-1" \
-          "mock-key-line-2" \
-          "-----END OPENSSH PRIVATE KEY-----"
+      *GithubActions*load-secrets-proton-pass-test*Email*)
+        echo "mock@example.com"
         ;;
       *)
         echo "mock-secret-value"
