@@ -11,8 +11,17 @@ case "$1" in
     echo "Session is valid (mock)"
     exit 0
     ;;
-  view)
-    URI="$2"
+  info)
+    echo "Personal Access Token: github-actions (mock)"
+    exit 0
+    ;;
+  item)
+    # Only `item view <pass://uri>` is exercised by the action.
+    if [[ "$2" != "view" ]]; then
+      echo "Unknown item subcommand: $2" >&2
+      exit 1
+    fi
+    URI="$3"
     case "$URI" in
       *Production*Database*password*)
         echo "mock-db-password-12345"

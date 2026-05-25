@@ -27,8 +27,7 @@ jobs:
       - name: Load secrets into template
         uses: gizmodlabs/load-secrets-proton-pass@v1
         with:
-          account-email: ${{ secrets.PROTON_ACCOUNT_EMAIL }}
-          proton-password: ${{ secrets.PROTON_PASS_PASSWORD }}
+          personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
           env-template: ".env.production.template"
 
       - name: Deploy with resolved .env

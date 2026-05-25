@@ -1,4 +1,4 @@
-# Basic usage: load secrets as step outputs
+# Basic usage: load secrets as environment variables
 name: Deploy with Proton Pass Secrets
 
 on:
@@ -12,17 +12,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Load secrets
-        id: secrets
         uses: gizmodlabs/load-secrets-proton-pass@v1
         with:
-          account-email: ${{ secrets.PROTON_ACCOUNT_EMAIL }}
-          proton-password: ${{ secrets.PROTON_PASS_PASSWORD }}
+          personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
         env:
           DB_PASSWORD: "pass://Production/Database/password"
           API_KEY: "pass://Production/API/key"
 
+      # DB_PASSWORD and API_KEY are now exported as env vars
       - name: Use secrets
-        run: echo "Secrets loaded successfully"
-        env:
-          DB_PASSWORD: ${{ steps.secrets.outputs.DB_PASSWORD }}
-          API_KEY: ${{ steps.secrets.outputs.API_KEY }}
+        run: ./deploy.sh

@@ -27,9 +27,24 @@ while IFS='=' read -r key value; do
   echo "::group::Resolving $key"
   echo "  URI: pass://$vault/$item/$field"
 
-  # Resolve using pass-cli view (accepts pass:// URIs directly)
-  resolved=$(pass-cli view "pass://${vault}/${item}/${field}" 2>&1) || {
+  # Resolve using pass-cli item view (accepts pass:// URIs directly)
+  resolved=$(pass-cli item view "pass://${vault}/${item}/${field}" 2>&1) || {
     echo "::error::Failed to resolve secret for $key (pass://$vault/$item/$field): $resolved"
+    case "$resolved" in
+      *"vault by name"*|*"Could not find vault"*)
+        echo "::error::Hint: the PAT does not have access to vault '$vault'."
+        echo "::error::  Check current scope: pass-cli pat access list-access --pat-name <YOUR-PAT-NAME>"
+        echo "::error::  Grant access:        pass-cli pat access grant --pat-name <YOUR-PAT-NAME> --vault-name '$vault' --role viewer"
+        ;;
+      *"item by name"*|*"Could not find item"*)
+        echo "::error::Hint: item '$item' was not found in vault '$vault'. List exact names with:"
+        echo "::error::  pass-cli item list --vault-name '$vault'"
+        ;;
+      *"Could not find field"*|*"finding field"*)
+        echo "::error::Hint: field '$field' was not found on item '$item'. See available fields with:"
+        echo "::error::  pass-cli item view \"pass://$vault/$item\""
+        ;;
+    esac
     FAILED=$((FAILED + 1))
     echo "::endgroup::"
     continue
@@ -45,22 +60,13 @@ while IFS='=' read -r key value; do
     done <<< "$resolved"
   fi
 
-  # Export as step output (always) using multiline-safe delimiter
-  delimiter="EOF_$(head -c 16 /dev/urandom | xxd -p)"
+  # Export as env var for subsequent steps, multiline-safe
+  delimiter="EOF_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   {
     echo "${key}<<${delimiter}"
     echo "${resolved}"
     echo "${delimiter}"
-  } >> "$GITHUB_OUTPUT"
-
-  # Export as env var (if enabled)
-  if [[ "${EXPORT_ENV:-false}" == "true" ]]; then
-    {
-      echo "${key}<<${delimiter}"
-      echo "${resolved}"
-      echo "${delimiter}"
-    } >> "$GITHUB_ENV"
-  fi
+  } >> "$GITHUB_ENV"
 
   RESOLVED_COUNT=$((RESOLVED_COUNT + 1))
   echo "  Resolved successfully"

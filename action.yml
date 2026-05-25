@@ -7,32 +7,17 @@ branding:
   color: 'purple'
 
 inputs:
-  account-email:
-    description: 'Proton account email address'
+  personal-access-token:
+    description: 'Proton Pass Personal Access Token in the format `pst_xxxx::TOKENKEY`. Generate with `pass-cli pat create`.'
     required: true
-  proton-password:
-    description: 'Proton account password (store as GitHub secret)'
-    required: true
-  totp:
-    description: 'TOTP code for 2FA (only needed if 2FA is enabled on the Proton account)'
-    required: false
-    default: ''
-  extra-password:
-    description: 'Proton Pass extra password (only if extra password is configured)'
-    required: false
-    default: ''
-  export-env:
-    description: 'Export secrets as environment variables for subsequent steps'
-    required: false
-    default: 'false'
   env-template:
     description: 'Path to .env template file with pass:// references to inject'
     required: false
     default: ''
   pass-cli-version:
-    description: 'Proton Pass CLI version to install (default: latest)'
+    description: 'Proton Pass CLI version to install (pinned default for reproducibility — override to `latest` or another version if needed)'
     required: false
-    default: 'latest'
+    default: '2.1.0'
   mask-values:
     description: 'Mask resolved secret values in logs'
     required: false
@@ -51,24 +36,21 @@ runs:
     - name: Authenticate
       shell: bash
       run: |
-        if [[ -z "$PROTON_PASS_PASSWORD" ]]; then
-          echo "::error::proton-password input is required"
+        if [[ -z "$PROTON_PASS_PERSONAL_ACCESS_TOKEN" ]]; then
+          echo "::error::personal-access-token input is required"
           exit 1
         fi
 
-        pass-cli login --interactive "$ACCOUNT_EMAIL"
+        pass-cli login
 
-        pass-cli test || {
-          echo "::error::Proton Pass authentication failed. Check credentials."
+        pass-cli info || {
+          echo "::error::Proton Pass authentication failed. Check that the PAT is valid and has vault access."
           exit 1
         }
         echo "Authenticated with Proton Pass"
       env:
-        ACCOUNT_EMAIL: ${{ inputs.account-email }}
         PROTON_PASS_KEY_PROVIDER: fs
-        PROTON_PASS_PASSWORD: ${{ inputs.proton-password }}
-        PROTON_PASS_TOTP: ${{ inputs.totp }}
-        PROTON_PASS_EXTRA_PASSWORD: ${{ inputs.extra-password }}
+        PROTON_PASS_PERSONAL_ACCESS_TOKEN: ${{ inputs.personal-access-token }}
 
     - name: Resolve Secrets
       id: secrets
@@ -76,7 +58,6 @@ runs:
       run: ${{ github.action_path }}/scripts/resolve-secrets.sh
       env:
         PROTON_PASS_KEY_PROVIDER: fs
-        EXPORT_ENV: ${{ inputs.export-env }}
         MASK_VALUES: ${{ inputs.mask-values }}
 
     - name: Inject Template

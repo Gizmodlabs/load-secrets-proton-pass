@@ -1,4 +1,8 @@
 .secrets
 .env
+.env.agent-ci
 *.local
 .DS_Store
+
+# Local-only real-PAT smoke test — contains your actual vault/item paths
+tests/test-real.yml

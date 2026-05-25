@@ -1,0 +1,30 @@
+# Generate a scoped Personal Access Token locally, then use it in CI.
+#
+# Run these on your own machine (one-time setup):
+#
+#   pass-cli pat create --name "github-actions" --expiration 90d
+#   pass-cli pat access grant --pat-name "github-actions" --vault-name "Production" --role viewer
+#
+# The `create` command prints the token (pst_xxxx::TOKENKEY) once — copy it
+# into your repository's secrets as PROTON_PASS_PERSONAL_ACCESS_TOKEN.
+
+name: Deploy with PAT
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load secrets
+        uses: gizmodlabs/load-secrets-proton-pass@v1
+        with:
+          personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+        env:
+          DB_PASSWORD: "pass://Production/Database/password"
+
+      - name: Deploy
+        run: ./deploy.sh   # DB_PASSWORD is in env

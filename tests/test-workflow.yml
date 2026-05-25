@@ -13,37 +13,20 @@ jobs:
           sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
 
       - name: Load secrets (mock)
-        id: secrets
         uses: ./
         with:
-          account-email: "test@example.com"
-          proton-password: "mock-password"
-          export-env: true
+          personal-access-token: "pst_mock::TOKENKEY"
+          pass-cli-version: "1.0.0"   # matches tests/mock-pass-cli.sh --version output
         env:
           DB_PASSWORD: "pass://Production/Database/password"
           API_KEY: "pass://Work/Stripe/api_key"
           NORMAL_VAR: "not-a-secret"
 
-      - name: Verify outputs exist
-        run: |
-          echo "DB_PASSWORD output: ${{ steps.secrets.outputs.DB_PASSWORD }}"
-          echo "API_KEY output: ${{ steps.secrets.outputs.API_KEY }}"
-
-          # Step outputs should be non-empty
-          [[ -n "${{ steps.secrets.outputs.DB_PASSWORD }}" ]] || { echo "FAIL: DB_PASSWORD output empty"; exit 1; }
-          [[ -n "${{ steps.secrets.outputs.API_KEY }}" ]] || { echo "FAIL: API_KEY output empty"; exit 1; }
-
-          echo "Step outputs verified"
-
       - name: Verify env vars
         run: |
-          # Env vars should be set (export-env: true)
           [[ -n "$DB_PASSWORD" ]] || { echo "FAIL: DB_PASSWORD not set"; exit 1; }
           [[ -n "$API_KEY" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
-
-          # Non-pass:// vars should be untouched
           [[ "$NORMAL_VAR" == "not-a-secret" ]] || { echo "FAIL: NORMAL_VAR modified"; exit 1; }
-
           echo "Environment variables verified"
 
   test-template:
@@ -67,8 +50,8 @@ jobs:
       - name: Load secrets with template
         uses: ./
         with:
-          account-email: "test@example.com"
-          proton-password: "mock-password"
+          personal-access-token: "pst_mock::TOKENKEY"
+          pass-cli-version: "1.0.0"   # matches tests/mock-pass-cli.sh --version output
           env-template: "/tmp/test.env.template"
 
       - name: Verify template output

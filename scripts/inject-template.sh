@@ -20,8 +20,24 @@ fi
 echo "Injecting secrets into template: $TEMPLATE -> $OUTPUT"
 
 # Use pass-cli inject to resolve {{ pass://vault/item/field }} references
-pass-cli inject -i "$TEMPLATE" -o "$OUTPUT" || {
+inject_err=$(pass-cli inject -i "$TEMPLATE" -o "$OUTPUT" 2>&1) || {
   echo "::error::Failed to inject secrets into template: $TEMPLATE"
+  echo "::error::$inject_err"
+  case "$inject_err" in
+    *"vault by name"*|*"Could not find vault"*)
+      echo "::error::Hint: the PAT does not have access to a vault referenced in the template."
+      echo "::error::  Check current scope: pass-cli pat access list-access --pat-name <YOUR-PAT-NAME>"
+      echo "::error::  Grant access:        pass-cli pat access grant --pat-name <YOUR-PAT-NAME> --vault-name '<VAULT>' --role viewer"
+      ;;
+    *"item by name"*|*"Could not find item"*)
+      echo "::error::Hint: an item in the template was not found. List items per vault:"
+      echo "::error::  pass-cli item list --vault-name '<VAULT>'"
+      ;;
+    *"Could not find field"*|*"finding field"*)
+      echo "::error::Hint: a field reference in the template is wrong. View the item to see available fields:"
+      echo "::error::  pass-cli item view \"pass://<vault>/<item>\""
+      ;;
+  esac
   exit 1
 }
 

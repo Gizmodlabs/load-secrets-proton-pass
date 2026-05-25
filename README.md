@@ -8,106 +8,98 @@ Works like [1Password's load-secrets-action](https://github.com/1password/load-s
 
 ```yaml
 - name: Load secrets
-  id: secrets
   uses: gizmodlabs/load-secrets-proton-pass@v1
   with:
-    account-email: ${{ secrets.PROTON_ACCOUNT_EMAIL }}
-    proton-password: ${{ secrets.PROTON_PASS_PASSWORD }}
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
   env:
     DATABASE_URL: "pass://Production/Database/connection_string"
     STRIPE_KEY: "pass://Production/Stripe/secret_key"
 
 - name: Deploy
-  run: ./deploy.sh
-  env:
-    DATABASE_URL: ${{ steps.secrets.outputs.DATABASE_URL }}
-    STRIPE_KEY: ${{ steps.secrets.outputs.STRIPE_KEY }}
+  run: ./deploy.sh   # DATABASE_URL and STRIPE_KEY are in env
 ```
+
+Each `pass://vault/item/field` value is replaced with the real secret and exported as a regular environment variable for every subsequent step in the job.
 
 ## Setup
 
-### 1. Proton Pass Account
+### 1. Prerequisites
 
-You need a [Proton Pass Plus+](https://proton.me/pass) subscription (required for CLI access).
+- A [Proton Pass Plus+](https://proton.me/pass) subscription (required for CLI access)
+- The [Proton Pass CLI](https://proton.me/support/pass-cli) installed locally (you only need it on your own machine to mint the token — the action installs it on the runner automatically)
 
-**Recommended:** Create a dedicated Proton account for CI/CD without 2FA enabled. Share only the necessary vaults with it via Proton Pass vault sharing. See [`examples/dedicated-ci-account.yml`](examples/dedicated-ci-account.yml) for details.
+### 2. Generate a Personal Access Token
 
-### 2. GitHub Secrets
+Log in to `pass-cli` on your local machine, then create a scoped, expiring token for CI:
 
-Add these secrets to your repository (Settings > Secrets and variables > Actions):
+```bash
+# Create a named token (90-day expiration in this example)
+pass-cli pat create --name "github-actions" --expiration 90d
 
-| GitHub Secret | Required | Description |
-|---|---|---|
-| `PROTON_ACCOUNT_EMAIL` | Yes | Proton account email address |
-| `PROTON_PASS_PASSWORD` | Yes | Proton account password |
-| `PROTON_TOTP_SEED` | Only if 2FA enabled | TOTP seed for generating 2FA codes at runtime |
+# Grant it read-only access to each vault it should be able to see.
+# IMPORTANT: `pat create` alone gives the token zero vault access — you must
+# run this grant for every vault the action needs to read from.
+pass-cli pat access grant --pat-name "github-actions" --vault-name "Production" --role viewer
+```
 
-### 3. Secret References
+The `create` command prints the token in the format `pst_xxxx::TOKENKEY`. **Copy it now — it is shown only once.**
 
-Define secrets as environment variables on the action step using `pass://` URIs:
+Token tips:
+- Scope per-vault with `--role viewer` so the token can read but never write.
+- Use short expirations (`30d`, `90d`) and rotate.
+- Revoke any time with `pass-cli pat delete --name "github-actions"`.
+
+### 3. Add the GitHub secret
+
+In your repository, go to **Settings → Secrets and variables → Actions** and add:
+
+| GitHub Secret | Description |
+|---|---|
+| `PROTON_PASS_PERSONAL_ACCESS_TOKEN` | The full `pst_xxxx::TOKENKEY` value from step 2 |
+
+### 4. Reference secrets with `pass://` URIs
+
+Define each secret as an environment variable on the action step using a `pass://` URI:
 
 ```
 pass://vault-name/item-name/field-name
 ```
 
-- **vault-name**: Name of the Proton Pass vault
-- **item-name**: Name of the item in the vault
-- **field-name**: Name of the field (e.g., `password`, `username`, custom fields)
+- **vault-name** — name of the Proton Pass vault
+- **item-name** — name of the item in the vault
+- **field-name** — `password`, `username`, or any custom field name
 
 ## Usage
 
-### Step Outputs (Default)
+### Environment variables (default)
 
-Secrets are available as step outputs. Set `id` on the step and reference outputs in subsequent steps:
+Every `pass://` env var on the action step is resolved and re-exported as a regular env var available to all subsequent steps in the same job:
 
 ```yaml
 - name: Load secrets
-  id: secrets
   uses: gizmodlabs/load-secrets-proton-pass@v1
   with:
-    account-email: ${{ secrets.PROTON_ACCOUNT_EMAIL }}
-    proton-password: ${{ secrets.PROTON_PASS_PASSWORD }}
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
   env:
     DB_PASSWORD: "pass://Production/Database/password"
 
-- name: Use secret
-  run: echo "Secret is available"
-  env:
-    DB_PASSWORD: ${{ steps.secrets.outputs.DB_PASSWORD }}
+- name: Run migrations
+  run: ./migrate.sh   # DB_PASSWORD is in env
 ```
 
-### Environment Variable Export
+### Template file injection
 
-Set `export-env: true` to make secrets available as env vars in all subsequent steps:
-
-```yaml
-- name: Load secrets
-  uses: gizmodlabs/load-secrets-proton-pass@v1
-  with:
-    account-email: ${{ secrets.PROTON_ACCOUNT_EMAIL }}
-    proton-password: ${{ secrets.PROTON_PASS_PASSWORD }}
-    export-env: true
-  env:
-    DATABASE_URL: "pass://Production/Database/connection_string"
-
-- name: Deploy (DATABASE_URL is already in env)
-  run: ./deploy.sh
-```
-
-### Template File Injection
-
-Process `.env` template files with `{{ pass://vault/item/field }}` references:
+For applications that read a `.env` file, render one from a template with `{{ pass://vault/item/field }}` placeholders:
 
 ```yaml
-- name: Load secrets from template
+- name: Render .env from template
   uses: gizmodlabs/load-secrets-proton-pass@v1
   with:
-    account-email: ${{ secrets.PROTON_ACCOUNT_EMAIL }}
-    proton-password: ${{ secrets.PROTON_PASS_PASSWORD }}
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
     env-template: ".env.production.template"
 ```
 
-Template file (`.env.production.template`):
+Template (`.env.production.template`):
 ```
 DB_HOST=db.example.com
 DB_PASSWORD={{ pass://Production/Database/password }}
@@ -125,76 +117,60 @@ REDIS_URL=redis://actual-url:6379
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `account-email` | Yes | | Proton account email address |
-| `proton-password` | Yes | | Proton account password (store as GitHub secret) |
-| `totp` | No | `''` | TOTP code for 2FA |
-| `extra-password` | No | `''` | Proton Pass extra password |
-| `export-env` | No | `false` | Export secrets as env vars for subsequent steps |
-| `env-template` | No | `''` | Path to template file with `pass://` references |
-| `pass-cli-version` | No | `latest` | Proton Pass CLI version to install |
+| `personal-access-token` | Yes | | Proton Pass PAT (`pst_xxxx::TOKENKEY`) |
+| `env-template` | No | `''` | Path to a template file with `pass://` references |
+| `pass-cli-version` | No | `2.1.0` | Pinned for reproducibility. Override with `latest` or any version listed at [proton.me/download/pass-cli/versions.json](https://proton.me/download/pass-cli/versions.json) |
 | `mask-values` | No | `true` | Mask resolved values in workflow logs |
 
 ## Examples
 
-See the [`examples/`](examples/) directory for complete workflow files:
+Ready-to-copy workflow files live in [`examples/`](examples/):
 
 | Example | Description |
 |---------|-------------|
-| [`basic-usage.yml`](examples/basic-usage.yml) | Load secrets as step outputs |
-| [`export-env.yml`](examples/export-env.yml) | Export secrets as env vars for all steps |
+| [`with-pat.yml`](examples/with-pat.yml) | Generate a PAT locally, load one secret in CI |
+| [`basic-usage.yml`](examples/basic-usage.yml) | Load a couple of secrets and use them |
+| [`multi-service.yml`](examples/multi-service.yml) | Load secrets for multiple services in one step |
 | [`env-template.yml`](examples/env-template.yml) | Inject secrets into a `.env` template file |
-| [`multi-service.yml`](examples/multi-service.yml) | Load secrets for multiple services at once |
-| [`dedicated-ci-account.yml`](examples/dedicated-ci-account.yml) | Recommended CI/CD setup with a dedicated account |
-| [`with-totp.yml`](examples/with-totp.yml) | Generate and use TOTP codes for accounts with 2FA |
 
-## Authentication
+## Local development
 
-The action uses `pass-cli login --interactive`, which reads credentials from environment variables before prompting. With the inputs provided, authentication is fully automated.
+The action is bash on top of `pass-cli`. Three commands cover the local loop:
 
-**Recommended setup**: Create a dedicated Proton account for CI/CD without 2FA enabled, and share only the necessary vaults with it via Proton Pass vault sharing.
+```bash
+# 1. Lint
+shellcheck scripts/*.sh tests/*.sh
 
-If 2FA is required, generate the TOTP code at runtime from the seed. See [`examples/with-totp.yml`](examples/with-totp.yml) and [PLAN.md](PLAN.md) for details.
+# 2. Unit tests against the mock pass-cli (no Proton account needed)
+bash tests/run-local-tests.sh
+
+# 3. Full workflow simulation using the official GitHub Actions runner
+npx @redwoodjs/agent-ci run --workflow tests/test-workflow.yml
+```
+
+[`agent-ci`](https://agent-ci.dev) wraps the official `actions/runner` binary, so what passes locally is what runs in CI.
+
+### Smoke test against a real vault
+
+`tests/test-real.yml` (gitignored) runs the action end-to-end against your own Proton Pass account. Set up:
+
+```bash
+# 1. Put your PAT in .env.agent-ci (also gitignored) — agent-ci picks up
+#    secrets from this file automatically.
+echo 'PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_xxxx::TOKENKEY' > .env.agent-ci
+
+# 2. Edit the pass:// URIs in tests/test-real.yml to point at items you own.
+
+# 3. Run it.
+npx @redwoodjs/agent-ci run --workflow tests/test-real.yml
+```
+
+The workflow references the PAT as `${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}`, so the token never lives in the YAML.
 
 ## Requirements
 
 - A [Proton Pass Plus+](https://proton.me/pass) subscription (required for CLI access)
-- The [Proton Pass CLI](https://proton.me/support/pass-cli) (`pass-cli`) -- installed automatically by this action
-
-## Testing
-
-### Local Tests
-
-```bash
-# Run the test suite directly (requires bash, coreutils, xxd)
-bash tests/run-local-tests.sh
-```
-
-### With Dagger (Containerized)
-
-[Dagger](https://dagger.io/) runs the test suite inside containers -- no local dependencies beyond the Dagger CLI required.
-
-```bash
-# Install Dagger
-brew install dagger/tap/dagger
-
-# Run the full test suite
-dagger call test
-
-# Run individual checks
-dagger call test-resolve-secrets   # Test secret resolution only
-dagger call test-cleanup           # Test cleanup script
-dagger call lint                   # Run shellcheck on all scripts
-```
-
-### With nektos/act (Full Workflow Simulation)
-
-```bash
-# Install act
-brew install act
-
-# Run the test workflow
-act push -W tests/test-workflow.yml
-```
+- The [Proton Pass CLI](https://proton.me/support/pass-cli) — installed automatically on the runner by this action; needed locally only to mint the PAT
 
 ## Author
 
@@ -202,4 +178,4 @@ Created by [Martin](https://github.com/thisguymartin) at [Gizmodlabs LLC](https:
 
 ## License
 
-MIT - see [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE)

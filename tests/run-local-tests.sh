@@ -24,14 +24,12 @@ cp "$SCRIPT_DIR/mock-pass-cli.sh" "$MOCK_BIN/pass-cli"
 chmod +x "$MOCK_BIN/pass-cli"
 export PATH="$MOCK_BIN:$PATH"
 
-# Set up mock GITHUB_OUTPUT and GITHUB_ENV
-MOCK_OUTPUT=$(mktemp)
+# Set up mock GITHUB_ENV (the action writes resolved secrets here for subsequent steps)
 MOCK_ENV=$(mktemp)
-export GITHUB_OUTPUT="$MOCK_OUTPUT"
 export GITHUB_ENV="$MOCK_ENV"
 
 cleanup() {
-  rm -rf "$MOCK_BIN" "$MOCK_OUTPUT" "$MOCK_ENV"
+  rm -rf "$MOCK_BIN" "$MOCK_ENV"
 }
 trap cleanup EXIT
 
@@ -40,42 +38,28 @@ echo ""
 
 # Test 1: No pass:// URIs — should be a no-op
 echo "Test 1: No secrets to resolve (no-op)"
-EXPORT_ENV=false MASK_VALUES=true \
-  env -i PATH="$PATH" HOME="$HOME" GITHUB_OUTPUT="$MOCK_OUTPUT" GITHUB_ENV="$MOCK_ENV" \
-  NORMAL_VAR="hello" EXPORT_ENV="false" MASK_VALUES="true" \
+env -i PATH="$PATH" HOME="$HOME" GITHUB_ENV="$MOCK_ENV" \
+  NORMAL_VAR="hello" MASK_VALUES="true" \
   bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
 assert_exit_code 0 $? "No pass:// URIs resolves successfully"
 echo ""
 
-# Test 2: Valid pass:// URI resolution
-echo "Test 2: Resolve pass:// URIs"
-> "$MOCK_OUTPUT"  # Clear output file
-env -i PATH="$PATH" HOME="$HOME" GITHUB_OUTPUT="$MOCK_OUTPUT" GITHUB_ENV="$MOCK_ENV" \
+# Test 2: Single pass:// URI exported to GITHUB_ENV
+echo "Test 2: Resolve a pass:// URI"
+: > "$MOCK_ENV"
+env -i PATH="$PATH" HOME="$HOME" GITHUB_ENV="$MOCK_ENV" \
   DB_PASSWORD="pass://Production/Database/password" \
-  EXPORT_ENV="false" MASK_VALUES="true" \
+  MASK_VALUES="true" \
   bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
 assert_exit_code 0 $? "pass:// URI resolved"
-grep -q "DB_PASSWORD" "$MOCK_OUTPUT"
-assert_exit_code 0 $? "DB_PASSWORD written to GITHUB_OUTPUT"
-grep -q "mock-db-password-12345" "$MOCK_OUTPUT"
-assert_exit_code 0 $? "Correct value in GITHUB_OUTPUT"
+grep -q "DB_PASSWORD" "$MOCK_ENV"
+assert_exit_code 0 $? "DB_PASSWORD written to GITHUB_ENV"
+grep -q "mock-db-password-12345" "$MOCK_ENV"
+assert_exit_code 0 $? "Correct value in GITHUB_ENV"
 echo ""
 
-# Test 3: Export to GITHUB_ENV when enabled
-echo "Test 3: Export to GITHUB_ENV"
-> "$MOCK_OUTPUT"
-> "$MOCK_ENV"
-env -i PATH="$PATH" HOME="$HOME" GITHUB_OUTPUT="$MOCK_OUTPUT" GITHUB_ENV="$MOCK_ENV" \
-  API_KEY="pass://Work/Stripe/api_key" \
-  EXPORT_ENV="true" MASK_VALUES="true" \
-  bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
-assert_exit_code 0 $? "Resolved with export-env"
-grep -q "API_KEY" "$MOCK_ENV"
-assert_exit_code 0 $? "API_KEY written to GITHUB_ENV"
-echo ""
-
-# Test 4: Template injection
-echo "Test 4: Template file processing"
+# Test 3: Template injection
+echo "Test 3: Template file processing"
 TEMPLATE_DIR=$(mktemp -d)
 TEMPLATE="${TEMPLATE_DIR}/test.env.template"
 cat > "$TEMPLATE" <<'TMPL'
@@ -97,26 +81,29 @@ fi
 rm -rf "$TEMPLATE_DIR"
 echo ""
 
-# Test 5: Cleanup script runs without error
-echo "Test 5: Cleanup"
+# Test 4: Cleanup script runs without error
+echo "Test 4: Cleanup"
 bash "$PROJECT_DIR/scripts/cleanup.sh"
 assert_exit_code 0 $? "Cleanup completed"
 echo ""
 
-# Test 6: Multiple secrets in one run
-echo "Test 6: Multiple secrets"
-> "$MOCK_OUTPUT"
-env -i PATH="$PATH" HOME="$HOME" GITHUB_OUTPUT="$MOCK_OUTPUT" GITHUB_ENV="$MOCK_ENV" \
+# Test 5: Multiple secrets in one run, mixed with non-secret env vars
+echo "Test 5: Multiple secrets"
+: > "$MOCK_ENV"
+env -i PATH="$PATH" HOME="$HOME" GITHUB_ENV="$MOCK_ENV" \
   SECRET_A="pass://Production/Database/password" \
   SECRET_B="pass://Work/Stripe/api_key" \
   NOT_A_SECRET="just-a-value" \
-  EXPORT_ENV="false" MASK_VALUES="true" \
+  MASK_VALUES="true" \
   bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
 assert_exit_code 0 $? "Multiple secrets resolved"
-grep -q "SECRET_A" "$MOCK_OUTPUT"
-assert_exit_code 0 $? "SECRET_A in output"
-grep -q "SECRET_B" "$MOCK_OUTPUT"
-assert_exit_code 0 $? "SECRET_B in output"
+grep -q "SECRET_A" "$MOCK_ENV"
+assert_exit_code 0 $? "SECRET_A in GITHUB_ENV"
+grep -q "SECRET_B" "$MOCK_ENV"
+assert_exit_code 0 $? "SECRET_B in GITHUB_ENV"
+rc=0
+grep -q "NOT_A_SECRET" "$MOCK_ENV" || rc=$?
+assert_exit_code 1 $rc "Non-pass:// vars left alone"
 echo ""
 
 echo "=== Results: $PASS passed, $FAIL failed ==="
