@@ -18,8 +18,8 @@ jobs:
           personal-access-token: "pst_mock::TOKENKEY"
           pass-cli-version: "1.0.0"   # matches tests/mock-pass-cli.sh --version output
         env:
-          DB_PASSWORD: "pass://Production/Database/password"
-          API_KEY: "pass://Work/Stripe/api_key"
+          DB_PASSWORD: "pass://GithubActions/load-secrets-proton-pass-test/Password"
+          API_KEY: "pass://GithubActions/load-secrets-proton-pass-test/Email"
           NORMAL_VAR: "not-a-secret"
 
       - name: Verify env vars
@@ -43,8 +43,8 @@ jobs:
         run: |
           cat > /tmp/test.env.template <<'EOF'
           DB_HOST=localhost
-          DB_PASSWORD={{ pass://Production/Database/password }}
-          API_KEY={{ pass://Work/Stripe/api_key }}
+          DB_PASSWORD={{ pass://GithubActions/load-secrets-proton-pass-test/Password }}
+          API_KEY={{ pass://GithubActions/load-secrets-proton-pass-test/Email }}
           EOF
 
       - name: Load secrets with template
@@ -59,3 +59,35 @@ jobs:
           [[ -f /tmp/test.env ]] || { echo "FAIL: Resolved template not created"; exit 1; }
           grep -q "mock-injected-value" /tmp/test.env || { echo "FAIL: Template values not injected"; exit 1; }
           echo "Template injection verified"
+
+  test-template-output-path:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mock CLI
+        run: |
+          chmod +x tests/mock-pass-cli.sh
+          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+
+      - name: Create test template
+        run: |
+          mkdir -p tests/.output
+          cat > tests/.output/test.env.template <<'EOF'
+          DB_PASSWORD={{ pass://GithubActions/load-secrets-proton-pass-test/Password }}
+          EOF
+
+      - name: Load secrets with template and explicit output-path
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+          pass-cli-version: "1.0.0"
+          env-template: "tests/.output/test.env.template"
+          output-path: "tests/.output/.env.production"
+
+      - name: Verify override path used
+        run: |
+          [[ -f tests/.output/.env.production ]] || { echo "FAIL: Override path not created"; exit 1; }
+          grep -q "mock-injected-value" tests/.output/.env.production || { echo "FAIL: Values not injected at override path"; exit 1; }
+          [[ ! -f tests/.output/test.env ]] || { echo "FAIL: Auto-derived path was written despite override"; exit 1; }
+          echo "Output-path override verified"

@@ -113,6 +113,17 @@ DB_PASSWORD=actual-resolved-password
 REDIS_URL=redis://actual-url:6379
 ```
 
+With an explicit output path:
+
+```yaml
+- name: Render .env from template with custom output
+  uses: gizmodlabs/load-secrets-proton-pass@v1
+  with:
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+    env-template: ".env.production.template"
+    output-path: ".env.production"
+```
+
 ## Inputs
 
 | Input | Required | Default | Description |
@@ -121,6 +132,7 @@ REDIS_URL=redis://actual-url:6379
 | `env-template` | No | `''` | Path to a template file with `pass://` references |
 | `pass-cli-version` | No | `2.1.0` | Pinned for reproducibility. Override with `latest` or any version listed at [proton.me/download/pass-cli/versions.json](https://proton.me/download/pass-cli/versions.json) |
 | `mask-values` | No | `true` | Mask resolved values in workflow logs |
+| `output-path` | No | `''` | Where to write the rendered template. Defaults to stripping `.template`/`.tpl`, else `<input>.resolved`. |
 
 ## Examples
 

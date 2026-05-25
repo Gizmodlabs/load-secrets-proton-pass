@@ -22,6 +22,10 @@ inputs:
     description: 'Mask resolved secret values in logs'
     required: false
     default: 'true'
+  output-path:
+    description: 'Where to write the rendered template. Defaults to stripping .template/.tpl, else input+.resolved.'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -68,6 +72,7 @@ runs:
         PROTON_PASS_KEY_PROVIDER: fs
         ENV_TEMPLATE: ${{ inputs.env-template }}
         MASK_VALUES: ${{ inputs.mask-values }}
+        OUTPUT_PATH: ${{ inputs.output-path }}
 
     - name: Cleanup
       if: always()

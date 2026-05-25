@@ -1,0 +1,72 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure shellcheck installed
+        run: command -v shellcheck >/dev/null || { sudo apt-get update && sudo apt-get install -y shellcheck; }
+      - name: Lint shell scripts
+        run: shellcheck scripts/*.sh tests/*.sh
+
+  bash-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bash test suite (mock pass-cli)
+        run: bash tests/run-local-tests.sh
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-run-log
+          path: tests/.output/test-run.log
+          if-no-files-found: ignore
+
+  template-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mock pass-cli
+        run: |
+          chmod +x tests/mock-pass-cli.sh
+          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+
+      - name: Create template
+        run: |
+          mkdir -p tests/.output
+          cat > tests/.output/test.env.template <<'EOF'
+          DB_PASSWORD={{ pass://GithubActions/load-secrets-proton-pass-test/Password }}
+          EMAIL={{ pass://GithubActions/load-secrets-proton-pass-test/Email }}
+          EOF
+
+      - name: Load secrets via template + explicit output-path
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+          pass-cli-version: "1.0.0"
+          env-template: "tests/.output/test.env.template"
+          output-path: "tests/.output/.env.production"
+
+      - name: Verify rendered file
+        run: |
+          [[ -f tests/.output/.env.production ]] || { echo "FAIL: override path not created"; exit 1; }
+          grep -q "DB_PASSWORD=mock-injected-value" tests/.output/.env.production || { echo "FAIL: DB_PASSWORD not injected"; exit 1; }
+          grep -q "EMAIL=mock-injected-value" tests/.output/.env.production || { echo "FAIL: EMAIL not injected"; exit 1; }
+          [[ ! -f tests/.output/test.env ]] || { echo "FAIL: auto-derived path written despite override"; exit 1; }
+          echo "Template injection verified"
+
+      - name: Upload rendered file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-template
+          path: tests/.output/.env.production
+          if-no-files-found: ignore

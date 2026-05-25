@@ -6,3 +6,6 @@
 
 # Local-only real-PAT smoke test — contains your actual vault/item paths
 tests/test-real.yml
+
+# Output dir for workflow simulation (templates + rendered files)
+tests/.output/

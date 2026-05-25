@@ -8,8 +8,10 @@ if [[ ! -f "$TEMPLATE" ]]; then
   exit 1
 fi
 
-# Determine output path: strip .template suffix, or append .resolved
-if [[ "$TEMPLATE" == *.template ]]; then
+# Determine output path: use explicit override, strip .template suffix, or append .resolved
+if [[ -n "${OUTPUT_PATH:-}" ]]; then
+  OUTPUT="$OUTPUT_PATH"
+elif [[ "$TEMPLATE" == *.template ]]; then
   OUTPUT="${TEMPLATE%.template}"
 elif [[ "$TEMPLATE" == *.tpl ]]; then
   OUTPUT="${TEMPLATE%.tpl}"
