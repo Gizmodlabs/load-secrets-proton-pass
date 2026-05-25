@@ -184,9 +184,31 @@ The workflow references the PAT as `${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKE
 - A [Proton Pass Plus+](https://proton.me/pass) subscription (required for CLI access)
 - The [Proton Pass CLI](https://proton.me/support/pass-cli) — installed automatically on the runner by this action; needed locally only to mint the PAT
 
+## Project status
+
+This is an **independent, community-maintained** GitHub Action. It is **not affiliated with, endorsed by, or sponsored by Proton AG**. "Proton" and "Proton Pass" are trademarks of Proton AG and are used here only to describe what the action talks to.
+
+The action is a thin wrapper around Proton's public [`pass-cli`](https://proton.me/support/pass-cli) — the same binary anyone can install and run. It uses only documented commands, accesses no private APIs, bypasses no auth, and does not reuse Proton branding beyond naming the integration. That's the same footing as any community Terraform provider, GitHub Action, or SDK wrapper around a public CLI:
+
+- follows the upstream license and terms
+- does not impersonate Proton or claim to be official
+- does not misuse trademarks or logos
+- does not bypass authentication or security controls
+
+If you're at Proton and want to chat about it — say hi. It's a courtesy, not a permission request.
+
+## Contributing
+
+Open source under MIT. Contributions welcome — bug reports, fixes, docs, new examples, dependency bumps, anything.
+
+- File issues and feature requests in the [Issues](../../issues) tab.
+- Before opening a PR, run `shellcheck scripts/*.sh tests/*.sh` and `bash tests/run-local-tests.sh` locally. Both should pass.
+- Keep PRs focused; one concern per branch.
+- See [Local development](#local-development) for the full dev loop.
+
 ## Author
 
-Created by [Martin](https://github.com/thisguymartin) at [Gizmodlabs LLC](https://github.com/gizmodlabs).
+Created by [Martin](https://github.com/thisguymartin) at [Gizmodlabs LLC](https://github.com/gizmodlabs), with contributions from the community.
 
 ## License
 
