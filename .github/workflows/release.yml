@@ -30,7 +30,7 @@ jobs:
           echo "name=$ref"             >> "$GITHUB_OUTPUT"
           echo "major=${ref%%.*}"      >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ steps.tag.outputs.name }}
           fetch-depth: 0
