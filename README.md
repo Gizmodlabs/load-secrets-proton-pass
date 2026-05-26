@@ -91,6 +91,30 @@ Every `pass://` env var on the action step is resolved and re-exported as a regu
   run: ./migrate.sh   # DB_PASSWORD is in env
 ```
 
+### Bulk-load every field on an item (glob URIs)
+
+When an item carries several related fields (a database item with `host`, `port`, `password`, `database_name`), use `*` in the field segment to pull all of them with one entry:
+
+```yaml
+- name: Load secrets
+  uses: gizmodlabs/load-secrets-proton-pass@v1
+  with:
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+  env:
+    DB: "pass://Production/Database/*"
+
+- name: Connect
+  run: psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME"
+```
+
+The env-var name on the left becomes the prefix. Each field is exported as `<PREFIX>_<FIELD>`, where `<FIELD>` is sanitized: non-alphanumeric characters collapse to `_`, leading/trailing `_` is trimmed, and the result is uppercased. `api-key` and `API Key` both become `API_KEY`.
+
+Restrictions:
+- Wildcards are only valid in the **field** segment. `pass://Vault/*/field` and `pass://*/item/field` are rejected.
+- An item with zero fields fails the step — empty matches are always errors.
+- Two field names that sanitize to the same suffix (e.g. `api-key` and `api_key`) fail the step with both raw names listed. Rename the field or use explicit `pass://` URIs.
+- Adding a new field to a globbed item adds a new env var on the next run. Keep that in mind when sharing vaults across workflows.
+
 ### Template file injection
 
 For applications that read a `.env` file, render one from a template with `{{ pass://vault/item/field }}` placeholders:
