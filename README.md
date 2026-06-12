@@ -186,6 +186,28 @@ With an explicit output path:
 | `strict` | No | `true` | Fail the step when any `pass://` URI cannot be resolved. Set `false` for best-effort mode: failures become warnings and the step continues |
 | `output-path` | No | `''` | Where to write the rendered template. Defaults to stripping `.template`/`.tpl`, else `<input>.resolved`. |
 
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `resolved-keys` | Comma-separated, sorted list of env var names the action populated (e.g. `API_KEY,DB_PASSWORD`). Names only — values never appear. Empty string when nothing resolved. |
+
+Use it to gate downstream steps on what was actually loaded, without touching values:
+
+```yaml
+- name: Load secrets
+  id: secrets
+  uses: gizmodlabs/load-secrets-proton-pass@v1
+  with:
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+  env:
+    DB_PASSWORD: "pass://Prod/DB/password"
+
+- name: Run migrations only if DB_PASSWORD loaded
+  if: contains(steps.secrets.outputs.resolved-keys, 'DB_PASSWORD')
+  run: ./run-migrations.sh
+```
+
 ## Examples
 
 Ready-to-copy workflow files live in [`examples/`](examples/):

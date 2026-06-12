@@ -5,6 +5,7 @@ PASS_URI_PATTERN="^pass://(.+)/(.+)/(.+)$"
 RESOLVED_COUNT=0
 STRICT="${STRICT:-true}"
 FAILURES=()
+RESOLVED_KEYS=()
 
 # Failures annotate as errors in strict mode, warnings in best-effort mode
 ANNOTATE="error"
@@ -88,6 +89,19 @@ resolve_and_export() {
   } >> "$GITHUB_ENV"
 
   RESOLVED_COUNT=$((RESOLVED_COUNT + 1))
+  RESOLVED_KEYS+=("$env_key")
+}
+
+# Publish the resolved-keys step output: sorted, comma-separated env var names.
+# Names only — values never leave GITHUB_ENV. Empty string when nothing resolved.
+write_resolved_keys_output() {
+  [[ -n "${GITHUB_OUTPUT:-}" ]] || return 0
+  local sorted_keys=""
+  # Length guard: expanding an empty array trips set -u on bash 3.2 (macOS).
+  if [[ ${#RESOLVED_KEYS[@]} -gt 0 ]]; then
+    sorted_keys=$(printf '%s\n' "${RESOLVED_KEYS[@]}" | sort | paste -sd, -)
+  fi
+  echo "resolved-keys=${sorted_keys}" >> "$GITHUB_OUTPUT"
 }
 
 # Parse field names from `pass-cli item view <pass://V/item> --output json`.
@@ -203,6 +217,9 @@ while IFS='=' read -r key value; do
 
   echo "::endgroup::"
 done < <(env)
+
+# Before the strict-mode exit so downstream `if: always()` steps can inspect it.
+write_resolved_keys_output
 
 if [[ ${#FAILURES[@]} -gt 0 ]]; then
   echo "::${ANNOTATE}::Failed to resolve ${#FAILURES[@]} secret(s):"

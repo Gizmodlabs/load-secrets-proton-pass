@@ -13,6 +13,7 @@ jobs:
           sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
 
       - name: Load secrets (mock)
+        id: secrets
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
@@ -28,6 +29,29 @@ jobs:
           [[ -n "$API_KEY" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
           [[ "$NORMAL_VAR" == "not-a-secret" ]] || { echo "FAIL: NORMAL_VAR modified"; exit 1; }
           echo "Environment variables verified"
+
+      # Assertions on resolved-keys use `if:` expressions, not `env:` mapping —
+      # agent-ci pre-evaluates step env at job start (before outputs exist),
+      # while `if:` evaluates live on both agent-ci and real GitHub runners.
+      - name: Verify resolved-keys output exact value
+        if: steps.secrets.outputs.resolved-keys == 'API_KEY,DB_PASSWORD'
+        run: echo "resolved-keys output verified (sorted, names only)"
+
+      - name: Fail if resolved-keys mismatched
+        if: steps.secrets.outputs.resolved-keys != 'API_KEY,DB_PASSWORD'
+        run: |
+          echo "FAIL: resolved-keys did not equal 'API_KEY,DB_PASSWORD'"
+          exit 1
+
+      - name: Gate on resolved-keys via contains()
+        if: contains(steps.secrets.outputs.resolved-keys, 'DB_PASSWORD')
+        run: echo "contains() gating works"
+
+      - name: Fail if contains() gate did not fire
+        if: ${{ !contains(steps.secrets.outputs.resolved-keys, 'DB_PASSWORD') }}
+        run: |
+          echo "FAIL: contains() gate on DB_PASSWORD did not match"
+          exit 1
 
   test-template:
     runs-on: ubuntu-latest
