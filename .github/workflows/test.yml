@@ -55,6 +55,55 @@ jobs:
           [[ "$DB_PASSWORD" == "hunter2" ]] || { echo "FAIL: DB_PASSWORD=$DB_PASSWORD"; exit 1; }
           echo "Glob expansion verified"
 
+  resolved-keys-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install mock pass-cli
+        run: |
+          chmod +x tests/mock-pass-cli.sh
+          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+
+      - name: Load secrets (mock)
+        id: secrets
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+          pass-cli-version: "1.0.0"
+        env:
+          DB_PASSWORD: "pass://GithubActions/load-secrets-proton-pass-test/Password"
+          API_KEY: "pass://GithubActions/load-secrets-proton-pass-test/Email"
+          NORMAL_VAR: "not-a-secret"
+
+      # env-mapping is the user-facing pattern from the README; real runners
+      # evaluate it correctly (agent-ci pre-evaluates step env, so this
+      # assertion lives here rather than in tests/test-workflow.yml).
+      - name: Verify resolved-keys via env mapping
+        env:
+          RESOLVED_KEYS: ${{ steps.secrets.outputs.resolved-keys }}
+        run: |
+          [[ "$RESOLVED_KEYS" == "API_KEY,DB_PASSWORD" ]] || { echo "FAIL: resolved-keys was '$RESOLVED_KEYS'"; exit 1; }
+          echo "resolved-keys verified: sorted, names only"
+
+      - name: Verify no secret values in output
+        env:
+          RESOLVED_KEYS: ${{ steps.secrets.outputs.resolved-keys }}
+        run: |
+          [[ "$RESOLVED_KEYS" != *"mock-real-password"* ]] || { echo "FAIL: secret value leaked into resolved-keys"; exit 1; }
+          [[ "$RESOLVED_KEYS" != *"mock@example.com"* ]] || { echo "FAIL: secret value leaked into resolved-keys"; exit 1; }
+          echo "No values in resolved-keys"
+
+      - name: Gate on resolved-keys via contains()
+        if: contains(steps.secrets.outputs.resolved-keys, 'DB_PASSWORD')
+        run: echo "contains() gating works"
+
+      - name: Fail if contains() gate did not fire
+        if: ${{ !contains(steps.secrets.outputs.resolved-keys, 'DB_PASSWORD') }}
+        run: |
+          echo "FAIL: contains() gate on DB_PASSWORD did not match"
+          exit 1
+
   template-action:
     runs-on: ubuntu-latest
     steps:
