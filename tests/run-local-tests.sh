@@ -35,8 +35,12 @@ export PATH="$MOCK_BIN:$PATH"
 MOCK_ENV=$(mktemp)
 export GITHUB_ENV="$MOCK_ENV"
 
+# Set up mock GITHUB_OUTPUT (the action writes the resolved-keys step output here)
+MOCK_OUTPUT=$(mktemp)
+export GITHUB_OUTPUT="$MOCK_OUTPUT"
+
 cleanup() {
-  rm -rf "$MOCK_BIN" "$MOCK_ENV"
+  rm -rf "$MOCK_BIN" "$MOCK_ENV" "$MOCK_OUTPUT"
 }
 trap cleanup EXIT
 
@@ -329,6 +333,66 @@ assert_exit_code 0 $rc "strict=false continues despite empty glob"
 rc=0
 grep -q "::warning::Glob pass://GithubActions/empty-item/\* matched zero fields" <<< "$lax_glob_out" || rc=$?
 assert_exit_code 0 $rc "Empty glob reported as warning"
+echo ""
+
+# Test 19: resolved-keys output — sorted names of loaded vars, no values
+echo "Test 19: resolved-keys output sorted, names only"
+: > "$MOCK_ENV"
+: > "$MOCK_OUTPUT"
+env -i PATH="$PATH" HOME="$HOME" GITHUB_ENV="$MOCK_ENV" GITHUB_OUTPUT="$MOCK_OUTPUT" \
+  ZEBRA_KEY="pass://GithubActions/load-secrets-proton-pass-test/Password" \
+  ALPHA_KEY="pass://GithubActions/load-secrets-proton-pass-test/Email" \
+  MASK_VALUES="true" \
+  bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
+assert_exit_code 0 $? "Resolver ran"
+rc=0
+grep -q "^resolved-keys=ALPHA_KEY,ZEBRA_KEY$" "$MOCK_OUTPUT" || rc=$?
+assert_exit_code 0 $rc "resolved-keys sorted comma-separated names"
+rc=0
+grep -q "mock-real-password" "$MOCK_OUTPUT" || rc=$?
+assert_exit_code 1 $rc "No secret values in GITHUB_OUTPUT"
+echo ""
+
+# Test 20: resolved-keys written as empty string when nothing resolved
+echo "Test 20: resolved-keys empty when zero secrets"
+: > "$MOCK_ENV"
+: > "$MOCK_OUTPUT"
+env -i PATH="$PATH" HOME="$HOME" GITHUB_ENV="$MOCK_ENV" GITHUB_OUTPUT="$MOCK_OUTPUT" \
+  NORMAL_VAR="hello" MASK_VALUES="true" \
+  bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
+assert_exit_code 0 $? "No-op resolver ran"
+rc=0
+grep -q "^resolved-keys=$" "$MOCK_OUTPUT" || rc=$?
+assert_exit_code 0 $rc "resolved-keys present and empty"
+echo ""
+
+# Test 21: resolved-keys includes glob-expanded var names
+echo "Test 21: resolved-keys includes glob-expanded keys"
+: > "$MOCK_ENV"
+: > "$MOCK_OUTPUT"
+env -i PATH="$PATH" HOME="$HOME" GITHUB_ENV="$MOCK_ENV" GITHUB_OUTPUT="$MOCK_OUTPUT" \
+  DB="pass://GithubActions/multi-field-item/*" \
+  MASK_VALUES="false" \
+  bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
+assert_exit_code 0 $? "Glob resolver ran"
+rc=0
+grep -q "^resolved-keys=DB_HOST,DB_PASSWORD,DB_PORT$" "$MOCK_OUTPUT" || rc=$?
+assert_exit_code 0 $rc "Glob-expanded names listed sorted"
+echo ""
+
+# Test 22: best-effort mode — failed key excluded, resolved key listed
+echo "Test 22: resolved-keys excludes unresolved vars (strict=false)"
+: > "$MOCK_ENV"
+: > "$MOCK_OUTPUT"
+env -i PATH="$PATH" HOME="$HOME" GITHUB_ENV="$MOCK_ENV" GITHUB_OUTPUT="$MOCK_OUTPUT" \
+  GOOD_SECRET="pass://GithubActions/load-secrets-proton-pass-test/Password" \
+  BOGUS="pass://Prod/Does-Not-Exist/x" \
+  MASK_VALUES="true" STRICT="false" \
+  bash "$PROJECT_DIR/scripts/resolve-secrets.sh"
+assert_exit_code 0 $? "Best-effort resolver ran"
+rc=0
+grep -q "^resolved-keys=GOOD_SECRET$" "$MOCK_OUTPUT" || rc=$?
+assert_exit_code 0 $rc "Only resolved key listed"
 echo ""
 
 echo "=== Results: $PASS passed, $FAIL failed ==="
