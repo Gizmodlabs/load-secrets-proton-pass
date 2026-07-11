@@ -6,10 +6,11 @@ Verification of the action's scripts against the [official Proton Pass CLI docum
 
 | What | Action uses | Real CLI | Status |
 |------|-------------|----------|--------|
-| Install | `curl -fsSL https://proton.me/download/pass-cli/install.sh \| bash` | Same | Correct |
+| Install | Downloads the binary URL listed in [versions.json](https://proton.me/download/pass-cli/versions.json) and verifies its SHA-256 (fail-closed; `latest` resolves through the same manifest) | Same binaries Proton publishes | Correct |
 | Login (PAT) | `pass-cli login` (with `PROTON_PASS_PERSONAL_ACCESS_TOKEN` in env) | Same | Correct |
 | Session probe | `pass-cli info` | Same | Correct |
-| Read field value | `pass-cli item view "pass://vault/item/field"` | Same | Correct |
+| Read field value | `pass-cli item view -- "pass://vault/item/field"` (`--` guards against flag-like values) | Same | Correct |
+| List item fields (glob) | `pass-cli item view --output json -- "pass://vault/item"` | Same | Correct |
 | Inject template | `pass-cli inject -i template -o output` | Same | Correct |
 | Logout | `pass-cli logout` | Same | Correct |
 
