@@ -30,61 +30,18 @@ inputs:
     description: 'Where to write the rendered template. Defaults to stripping .template/.tpl, else input+.resolved.'
     required: false
     default: ''
+  export-env:
+    description: 'Export resolved secrets as environment variables for subsequent steps (default). Set to false to expose them only as step outputs. Note: the upstream protonpass/load-secret-action defaults this to false; this action defaults to true to stay compatible with its own earlier releases.'
+    required: false
+    default: 'true'
 
 outputs:
   resolved-keys:
     description: 'Comma-separated, sorted list of env var names the action populated. Names only — values never appear. Empty string when nothing resolved.'
-    value: ${{ steps.secrets.outputs.resolved-keys }}
+  # In addition to resolved-keys, every resolved variable is exposed as its
+  # own (masked) step output: steps.<id>.outputs.<NAME>.
 
 runs:
-  using: 'composite'
-  steps:
-    - name: Install Proton Pass CLI
-      id: install
-      shell: bash
-      run: ${{ github.action_path }}/scripts/install-cli.sh
-      env:
-        PASS_CLI_VERSION: ${{ inputs.pass-cli-version }}
-
-    - name: Authenticate
-      shell: bash
-      run: |
-        if [[ -z "$PROTON_PASS_PERSONAL_ACCESS_TOKEN" ]]; then
-          echo "::error::personal-access-token input is required"
-          exit 1
-        fi
-
-        pass-cli login
-
-        pass-cli info || {
-          echo "::error::Proton Pass authentication failed. Check that the PAT is valid and has vault access."
-          exit 1
-        }
-        echo "Authenticated with Proton Pass"
-      env:
-        PROTON_PASS_KEY_PROVIDER: fs
-        PROTON_PASS_PERSONAL_ACCESS_TOKEN: ${{ inputs.personal-access-token }}
-
-    - name: Resolve Secrets
-      id: secrets
-      shell: bash
-      run: ${{ github.action_path }}/scripts/resolve-secrets.sh
-      env:
-        PROTON_PASS_KEY_PROVIDER: fs
-        MASK_VALUES: ${{ inputs.mask-values }}
-        STRICT: ${{ inputs.strict }}
-
-    - name: Inject Template
-      if: inputs.env-template != ''
-      shell: bash
-      run: ${{ github.action_path }}/scripts/inject-template.sh
-      env:
-        PROTON_PASS_KEY_PROVIDER: fs
-        ENV_TEMPLATE: ${{ inputs.env-template }}
-        MASK_VALUES: ${{ inputs.mask-values }}
-        OUTPUT_PATH: ${{ inputs.output-path }}
-
-    - name: Cleanup
-      if: always()
-      shell: bash
-      run: ${{ github.action_path }}/scripts/cleanup.sh
+  using: 'node24'
+  main: 'dist/index.js'
+  post: 'dist/cleanup.js'
