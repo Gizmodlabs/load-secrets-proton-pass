@@ -46,7 +46,7 @@ jobs:
               --exclude='docs' \
               --exclude='.env.agent-ci' \
               -czf "$tarball" \
-              action.yml scripts/ README.md LICENSE CLAUDE.md
+              action.yml dist/ README.md LICENSE CLAUDE.md MIGRATION.md
           sha256sum "$tarball" | tee "${tarball}.sha256"
           echo "tarball=$tarball"       >> "$GITHUB_OUTPUT"
           echo "checksum=${tarball}.sha256" >> "$GITHUB_OUTPUT"

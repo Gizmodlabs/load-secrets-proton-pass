@@ -8,6 +8,8 @@ A GitHub Action that loads secrets from [Proton Pass](https://proton.me/pass) va
 
 Works like [1Password's load-secrets-action](https://github.com/1password/load-secrets-action), but backed by Proton Pass.
 
+A TypeScript action on the `node24` runtime; runs on ubuntu, macos, and windows GitHub-hosted runners. Migrating from the bash-based v1? See [MIGRATION.md](MIGRATION.md).
+
 ## Quick Start
 
 ```yaml
@@ -185,12 +187,16 @@ With an explicit output path:
 | `mask-values` | No | `true` | Mask resolved values in workflow logs |
 | `strict` | No | `true` | Fail the step when any `pass://` URI cannot be resolved. Set `false` for best-effort mode: failures become warnings and the step continues |
 | `output-path` | No | `''` | Where to write the rendered template. Defaults to stripping `.template`/`.tpl`, else `<input>.resolved`. |
+| `export-env` | No | `true` | Export resolved secrets as env vars for subsequent steps. Set `false` to consume them only as step outputs. (Upstream `protonpass/load-secret-action` defaults this to `false`; this action defaults to `true` for compatibility with its own earlier releases.) |
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
 | `resolved-keys` | Comma-separated, sorted list of env var names the action populated (e.g. `API_KEY,DB_PASSWORD`). Names only — values never appear. Empty string when nothing resolved. |
+| `<NAME>` (per resolved var) | Every resolved variable is also exposed as its own masked step output, e.g. `steps.secrets.outputs.DB_PASSWORD` — including glob-expanded names. |
+
+Resolved values are exported **byte-exact** as printed by `pass-cli` — trailing newlines are preserved (they matter for SSH keys and PEM certificates). When comparing a resolved env var with strict string equality in bash, strip the CLI's trailing newline first: `"${DB_PASSWORD%$'\n'}"`.
 
 Use it to gate downstream steps on what was actually loaded, without touching values:
 
@@ -221,18 +227,25 @@ Ready-to-copy workflow files live in [`examples/`](examples/):
 
 ## Local development
 
-The action is bash on top of `pass-cli`. Three commands cover the local loop:
+The action is TypeScript (`src/`) bundled with esbuild into committed `dist/` bundles, on top of `pass-cli`. The local loop:
 
 ```bash
-# 1. Lint
-shellcheck scripts/*.sh tests/*.sh
+npm ci
 
-# 2. Unit tests against the mock pass-cli (no Proton account needed)
-bash tests/run-local-tests.sh
+# Typecheck (TS7 strict, no emit), bundle, and run the full test suite
+npm run build:check
 
-# 3. Full workflow simulation using the official GitHub Actions runner
+# Or individually:
+npm run typecheck   # tsc --noEmit
+npm run lint        # oxlint (typescript-eslint's type-aware rules don't support the TS7 checker yet)
+npm run build       # esbuild → dist/index.js + dist/cleanup.js
+npm test            # node:test — unit + integration against the mock pass-cli (no Proton account needed)
+
+# Full workflow simulation using the official GitHub Actions runner
 npx @redwoodjs/agent-ci run --workflow tests/test-workflow.yml
 ```
+
+`dist/` is a committed build artifact — rebuild and commit it with any `src/` change (CI fails on stale `dist/`).
 
 [`agent-ci`](https://agent-ci.dev) wraps the official `actions/runner` binary, so what passes locally is what runs in CI.
 
@@ -269,7 +282,7 @@ The action is a thin wrapper around Proton's public [`pass-cli`](https://proton.
 Open source under MIT. Contributions welcome — bug reports, fixes, docs, new examples, dependency bumps, anything.
 
 - File issues and feature requests in the [Issues](../../issues) tab.
-- Before opening a PR, run `shellcheck scripts/*.sh tests/*.sh` and `bash tests/run-local-tests.sh` locally. Both should pass.
+- Before opening a PR, run `npm run build:check` locally (typecheck + build + tests) and commit the rebuilt `dist/`.
 - Keep PRs focused; one concern per branch.
 - See [Local development](#local-development) for the full dev loop.
 

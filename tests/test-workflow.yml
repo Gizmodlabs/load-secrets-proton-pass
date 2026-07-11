@@ -8,25 +8,25 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install mock CLI
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Load secrets (mock)
         id: secrets
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"   # matches tests/mock-pass-cli.sh --version output
+          pass-cli-version: "1.0.0"   # matches the mock's --version output
         env:
           DB_PASSWORD: "pass://GithubActions/load-secrets-proton-pass-test/Password"
           API_KEY: "pass://GithubActions/load-secrets-proton-pass-test/Email"
           NORMAL_VAR: "not-a-secret"
 
+      # Values are byte-exact from pass-cli (trailing newline preserved), so
+      # assertions strip exactly one trailing newline.
       - name: Verify env vars
         run: |
-          [[ -n "$DB_PASSWORD" ]] || { echo "FAIL: DB_PASSWORD not set"; exit 1; }
-          [[ -n "$API_KEY" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
+          [[ "${DB_PASSWORD%$'\n'}" == "mock-real-password" ]] || { echo "FAIL: DB_PASSWORD not set"; exit 1; }
+          [[ "${API_KEY%$'\n'}" == "mock@example.com" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
           [[ "$NORMAL_VAR" == "not-a-secret" ]] || { echo "FAIL: NORMAL_VAR modified"; exit 1; }
           echo "Environment variables verified"
 
@@ -59,9 +59,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install mock CLI
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Create test template
         run: |
@@ -75,7 +73,7 @@ jobs:
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"   # matches tests/mock-pass-cli.sh --version output
+          pass-cli-version: "1.0.0"
           env-template: "/tmp/test.env.template"
 
       - name: Verify template output
@@ -90,9 +88,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install mock CLI
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Create test template
         run: |
