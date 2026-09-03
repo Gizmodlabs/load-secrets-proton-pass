@@ -21,7 +21,7 @@ export async function run(): Promise<void> {
   try {
     const inputs = readInputs()
 
-    await ensurePassCli(inputs.passCliVersion)
+    await ensurePassCli({ version: inputs.passCliVersion, hash: '', platform: '' })
     await establishSession(inputs.pat)
 
     const annotate = inputs.strict ? core.error : core.warning

@@ -21823,119 +21823,102 @@ function resolvePlatform(input) {
   return trimmed;
 }
 
-// src/installer/manifest.ts
-var VERSIONS_MANIFEST_URL = "https://proton.me/download/pass-cli/versions.json";
-async function resolveInstallerSpec(versionInput, platform, fetchJson2) {
-  const manifest = await fetchManifest(fetchJson2);
-  const versions = parseManifest(manifest);
-  const entry = selectVersion(versions, versionInput);
-  const asset = entry.assets.get(platform);
-  if (!asset) {
-    throw new Error(
-      `versions.json has no download for platform "${platform}" at pass-cli ${entry.version}. Refusing to install an unverifiable binary.`
-    );
-  }
-  if (!asset.hash) {
-    throw new Error(
-      `versions.json is missing the SHA-256 hash for pass-cli ${entry.version} (${platform}). Refusing to install an unverifiable binary.`
-    );
-  }
-  return { version: entry.version, platform, url: asset.url, sha256: asset.hash };
+// src/installer/release.ts
+var RELEASES_BASE = "https://github.com/protonpass/pass-cli/releases";
+var VERSION_RE = /^\d+\.\d+\.\d+$/;
+var SHA256_RE = /^[0-9a-f]{64}$/i;
+var MAX_SIDECAR_BYTES = 1024;
+function assetName(platform) {
+  return platform === "windows-x86_64" ? `pass-cli-${platform}.zip` : `pass-cli-${platform}`;
 }
-async function fetchManifest(fetchJson2) {
-  try {
-    return await fetchJson2(VERSIONS_MANIFEST_URL);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
+function downloadUrl(version, platform) {
+  return `${RELEASES_BASE}/download/${version}/${assetName(platform)}`;
+}
+function checksumUrl(version, platform) {
+  return `${downloadUrl(version, platform)}.sha256`;
+}
+function assertValidVersion(version) {
+  if (!VERSION_RE.test(version)) {
     throw new Error(
-      `Could not fetch ${VERSIONS_MANIFEST_URL} to verify the pass-cli download: ${detail}. Refusing to install an unverified binary.`
+      `Invalid pass-cli version "${version}": expected MAJOR.MINOR.PATCH (for example 2.3.3) or "latest".`
     );
   }
 }
-function parseManifest(manifest) {
-  const versionList = manifest?.passCliVersions;
-  if (!Array.isArray(versionList) || versionList.length === 0) {
+function parseExpectedHash(input) {
+  const hash = input.trim();
+  if (!SHA256_RE.test(hash)) {
+    throw new Error('Invalid "hash" input: expected a 64-character hexadecimal SHA-256 digest.');
+  }
+  return hash.toLowerCase();
+}
+async function resolveLatestVersion(http) {
+  const url = `${RELEASES_BASE}/latest`;
+  const res = await http.head(url);
+  const match = /\/releases\/tag\/v?([^/?#]+)$/.exec(res.location ?? "");
+  const version = match?.[1];
+  if (res.statusCode !== 302 || version === void 0) {
     throw new Error(
-      'Unexpected versions.json schema: expected a non-empty "passCliVersions" array. Refusing to install an unverifiable binary.'
+      `Could not determine the latest pass-cli version from ${url} (HTTP ${res.statusCode}). Pin pass-cli-version explicitly or retry.`
     );
   }
-  return versionList.map(parseVersionEntry).filter((entry) => entry !== null);
+  assertValidVersion(version);
+  return version;
 }
-function parseVersionEntry(raw) {
-  if (typeof raw !== "object" || raw === null) return null;
-  const { version, urls } = raw;
-  if (typeof version !== "string" || typeof urls !== "object" || urls === null) return null;
-  const assets = /* @__PURE__ */ new Map();
-  for (const [os, archMap] of Object.entries(urls)) {
-    if (typeof archMap !== "object" || archMap === null) continue;
-    for (const [arch, asset] of Object.entries(archMap)) {
-      const parsed = parseAsset(asset);
-      if (parsed) assets.set(`${os}-${arch}`, parsed);
-    }
+async function fetchReleaseChecksum(version, platform, http) {
+  const url = checksumUrl(version, platform);
+  const res = await http.getText(url);
+  if (res.statusCode !== 200) {
+    throw new Error(
+      `Could not fetch ${url} (HTTP ${res.statusCode}). Refusing to install an unverified binary. pass-cli releases before 2.1.2 are not published on GitHub Releases \u2014 see MIGRATION.md.`
+    );
   }
-  return { version, assets };
+  if (res.body.length > MAX_SIDECAR_BYTES) {
+    throw new Error(`${url} is too large to be a checksum file. Refusing to install an unverified binary.`);
+  }
+  const hash = res.body.trim().split(/\s+/)[0] ?? "";
+  if (!SHA256_RE.test(hash)) {
+    throw new Error(`${url} did not contain a SHA-256 digest. Refusing to install an unverified binary.`);
+  }
+  return hash.toLowerCase();
 }
-function parseAsset(raw) {
-  if (typeof raw !== "object" || raw === null) return null;
-  const { url, hash } = raw;
-  if (typeof url !== "string" || url.length === 0) return null;
-  return { url, hash: typeof hash === "string" ? hash : "" };
-}
-function selectVersion(versions, versionInput) {
-  if (versionInput !== "latest") {
-    const match = versions.find((entry) => entry.version === versionInput);
-    if (!match) {
-      const known = versions.map((entry) => entry.version).join(", ");
-      throw new Error(
-        `pass-cli version "${versionInput}" not found in versions.json (known: ${known}).`
-      );
-    }
-    return match;
-  }
-  const sorted = [...versions].sort((a, b) => compareSemver(b.version, a.version));
-  const newest = sorted[0];
-  if (!newest) {
-    throw new Error("versions.json lists no usable pass-cli versions.");
-  }
-  return newest;
-}
-function compareSemver(a, b) {
-  const partsA = a.split(".").map(Number);
-  const partsB = b.split(".").map(Number);
-  const length = Math.max(partsA.length, partsB.length);
-  for (let i = 0; i < length; i++) {
-    const diff = (partsA[i] ?? 0) - (partsB[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
+async function resolveInstallerSpec(versionInput, platform, hashInput, http) {
+  const suppliedHash = hashInput.trim() ? parseExpectedHash(hashInput) : null;
+  if (versionInput !== "latest") assertValidVersion(versionInput);
+  const version = versionInput === "latest" ? await resolveLatestVersion(http) : versionInput;
+  const sha256 = suppliedHash ?? await fetchReleaseChecksum(version, platform, http);
+  return { version, platform, url: downloadUrl(version, platform), sha256 };
 }
 
 // src/installer/install.ts
 var HTTP_USER_AGENT = "load-secrets-proton-pass";
+var DEFAULT_PASS_CLI_VERSION2 = "2.3.3";
 async function verifySha256(filePath, expectedHex) {
   const fileBytes = await import_node_fs.promises.readFile(filePath);
   const actualHex = (0, import_node_crypto.createHash)("sha256").update(fileBytes).digest("hex");
   if (actualHex.toLowerCase() !== expectedHex.toLowerCase()) {
     await import_node_fs.promises.rm(filePath, { force: true });
     throw new Error(
-      "SHA-256 mismatch: the downloaded pass-cli binary does not match the checksum in versions.json. Aborting."
+      "SHA-256 mismatch: the downloaded pass-cli binary does not match the expected checksum. Aborting."
     );
   }
 }
-async function ensurePassCli(versionInput, platformInput = "") {
+function acceptsPreinstalled(versionOutput, requested) {
+  if (requested === "" || requested === "latest") return true;
+  return versionOutput.includes(requested);
+}
+async function ensurePassCli(options) {
   const preinstalled = await installedVersion();
   if (preinstalled !== null) {
-    if (versionInput === "latest" || preinstalled.includes(versionInput)) {
+    if (acceptsPreinstalled(preinstalled, options.version)) {
       core2.info(`pass-cli already installed: ${preinstalled}`);
       return;
     }
-    core2.info(
-      `Installed pass-cli (${preinstalled}) does not match requested (${versionInput}), reinstalling`
-    );
+    core2.info(`Installed pass-cli (${preinstalled}) does not match requested (${options.version}), reinstalling`);
   }
-  const platform = resolvePlatform(platformInput);
+  const requested = options.version === "" ? DEFAULT_PASS_CLI_VERSION2 : options.version;
+  const platform = resolvePlatform(options.platform);
   core2.info(`Platform: ${platform}`);
-  const spec = await resolveInstallerSpec(versionInput, platform, fetchJson);
+  const spec = await resolveInstallerSpec(requested, platform, options.hash, releaseHttp());
   core2.info(`Installing pass-cli ${spec.version} from ${spec.url}`);
   const downloadPath = await toolCache.downloadTool(spec.url);
   await verifySha256(downloadPath, spec.sha256);
@@ -21977,17 +21960,21 @@ async function isZip(filePath) {
     await handle.close();
   }
 }
-async function fetchJson(url) {
-  const client = new import_http_client.HttpClient(HTTP_USER_AGENT);
-  try {
-    const response = await client.getJson(url);
-    if (response.statusCode !== 200 || response.result === null) {
-      throw new Error(`HTTP ${response.statusCode} from ${url}`);
+function releaseHttp() {
+  const following = new import_http_client.HttpClient(HTTP_USER_AGENT);
+  const nonFollowing = new import_http_client.HttpClient(HTTP_USER_AGENT, [], { allowRedirects: false });
+  return {
+    async head(url) {
+      const res = await nonFollowing.head(url);
+      await res.readBody();
+      return { statusCode: res.message.statusCode ?? 0, location: res.message.headers.location };
+    },
+    async getText(url) {
+      const res = await following.get(url);
+      const body = await res.readBody();
+      return { statusCode: res.message.statusCode ?? 0, body };
     }
-    return response.result;
-  } finally {
-    client.dispose();
-  }
+  };
 }
 
 // src/session/session.ts
@@ -22365,7 +22352,7 @@ var RESOLVED_KEYS_OUTPUT = "resolved-keys";
 async function run() {
   try {
     const inputs = readInputs();
-    await ensurePassCli(inputs.passCliVersion);
+    await ensurePassCli({ version: inputs.passCliVersion, hash: "", platform: "" });
     await establishSession(inputs.pat);
     const annotate = inputs.strict ? core7.error : core7.warning;
     const refs = findSecretRefs(process.env);

@@ -5,9 +5,25 @@ import { getExecOutput } from '@actions/exec'
 import * as toolCache from '@actions/tool-cache'
 import { HttpClient } from '@actions/http-client'
 import { resolvePlatform, type Platform } from './platform.ts'
-import { resolveInstallerSpec, VERSIONS_MANIFEST_URL } from './manifest.ts'
+import { resolveInstallerSpec, type ReleaseHttp } from './release.ts'
 
 const HTTP_USER_AGENT = 'load-secrets-proton-pass'
+
+/**
+ * Installed when the caller leaves `pass-cli-version` empty and nothing is
+ * on PATH. Pinned (not "latest") for reproducible builds; bump deliberately
+ * and re-run the real-vault e2e workflow.
+ */
+export const DEFAULT_PASS_CLI_VERSION = '2.3.3'
+
+export interface InstallOptions {
+  /** Raw `pass-cli-version` input: '' (unset), 'latest', or MAJOR.MINOR.PATCH. */
+  readonly version: string
+  /** Raw `hash` input; '' means fetch the release `.sha256` sidecar. */
+  readonly hash: string
+  /** Raw `platform` input; '' means auto-detect. */
+  readonly platform: string
+}
 
 /**
  * Verify a downloaded file against an expected SHA-256 hex digest.
@@ -21,33 +37,41 @@ export async function verifySha256(filePath: string, expectedHex: string): Promi
   if (actualHex.toLowerCase() !== expectedHex.toLowerCase()) {
     await fs.rm(filePath, { force: true })
     throw new Error(
-      'SHA-256 mismatch: the downloaded pass-cli binary does not match the checksum in versions.json. Aborting.',
+      'SHA-256 mismatch: the downloaded pass-cli binary does not match the expected checksum. Aborting.',
     )
   }
 }
 
 /**
- * Ensure a pass-cli matching the requested version is on PATH.
- * Skips installation when a matching binary is already present (this is how
- * tests pre-install the mock). Otherwise downloads from the URL listed in
- * versions.json and refuses to proceed without a successful SHA-256 check.
+ * Pre-installed acceptance policy. An unset or "latest" request accepts any
+ * pass-cli already on PATH (e.g. from protonpass/install-cli-action). An
+ * explicit version must appear in `pass-cli --version` output or we reinstall.
  */
-export async function ensurePassCli(versionInput: string, platformInput = ''): Promise<void> {
+export function acceptsPreinstalled(versionOutput: string, requested: string): boolean {
+  if (requested === '' || requested === 'latest') return true
+  return versionOutput.includes(requested)
+}
+
+/**
+ * Ensure a pass-cli acceptable for the request is on PATH. Otherwise download
+ * the GitHub release asset and refuse to proceed without a SHA-256 match
+ * against either the caller's `hash` input or the release's `.sha256` sidecar.
+ */
+export async function ensurePassCli(options: InstallOptions): Promise<void> {
   const preinstalled = await installedVersion()
   if (preinstalled !== null) {
-    if (versionInput === 'latest' || preinstalled.includes(versionInput)) {
+    if (acceptsPreinstalled(preinstalled, options.version)) {
       core.info(`pass-cli already installed: ${preinstalled}`)
       return
     }
-    core.info(
-      `Installed pass-cli (${preinstalled}) does not match requested (${versionInput}), reinstalling`,
-    )
+    core.info(`Installed pass-cli (${preinstalled}) does not match requested (${options.version}), reinstalling`)
   }
 
-  const platform = resolvePlatform(platformInput)
+  const requested = options.version === '' ? DEFAULT_PASS_CLI_VERSION : options.version
+  const platform = resolvePlatform(options.platform)
   core.info(`Platform: ${platform}`)
 
-  const spec = await resolveInstallerSpec(versionInput, platform, fetchJson)
+  const spec = await resolveInstallerSpec(requested, platform, options.hash, releaseHttp())
   core.info(`Installing pass-cli ${spec.version} from ${spec.url}`)
 
   const downloadPath = await toolCache.downloadTool(spec.url)
@@ -72,11 +96,7 @@ async function installedVersion(): Promise<string | null> {
   }
 }
 
-async function cacheBinary(
-  downloadPath: string,
-  version: string,
-  platform: Platform,
-): Promise<string> {
+async function cacheBinary(downloadPath: string, version: string, platform: Platform): Promise<string> {
   if (platform === 'windows-x86_64') {
     if (downloadPath.endsWith('.zip') || (await isZip(downloadPath))) {
       const extracted = await toolCache.extractZip(downloadPath)
@@ -100,18 +120,23 @@ async function isZip(filePath: string): Promise<boolean> {
   }
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  const client = new HttpClient(HTTP_USER_AGENT)
-  try {
-    const response = await client.getJson<unknown>(url)
-    if (response.statusCode !== 200 || response.result === null) {
-      throw new Error(`HTTP ${response.statusCode} from ${url}`)
-    }
-    return response.result
-  } finally {
-    client.dispose()
+/**
+ * Two clients: HEAD must NOT follow redirects (we read Location to learn the
+ * latest tag); GET must follow them (release assets 302 to a CDN).
+ */
+function releaseHttp(): ReleaseHttp {
+  const following = new HttpClient(HTTP_USER_AGENT)
+  const nonFollowing = new HttpClient(HTTP_USER_AGENT, [], { allowRedirects: false })
+  return {
+    async head(url) {
+      const res = await nonFollowing.head(url)
+      await res.readBody()
+      return { statusCode: res.message.statusCode ?? 0, location: res.message.headers.location }
+    },
+    async getText(url) {
+      const res = await following.get(url)
+      const body = await res.readBody()
+      return { statusCode: res.message.statusCode ?? 0, body }
+    },
   }
 }
-
-/** Exported for error messages and docs. */
-export { VERSIONS_MANIFEST_URL }
