@@ -7,10 +7,10 @@ deliberate behavior changes.
 
 ## What stays the same
 
-- **Inputs:** `personal-access-token` (required), `env-template`,
-  `pass-cli-version` (default `2.1.0`), `mask-values` (default `true`),
-  `strict` (default `true`), `output-path` — unchanged names, defaults, and
-  semantics.
+- **Existing input names remain valid:** `personal-access-token`, `env-template`,
+  `pass-cli-version`, `mask-values`, `strict`, and `output-path`. The token input
+  and CLI-version default are loosened in v2 as described below; existing values
+  continue to work when the requested CLI release is 2.1.2 or newer.
 - **Env-var loading:** every `pass://vault/item/field` value in the step's
   `env:` block is resolved and exported for subsequent steps (still the
   default — see `export-env` below).
@@ -40,12 +40,20 @@ deliberate behavior changes.
 - **Per-variable step outputs.** Every resolved variable is also published
   as a masked step output: `steps.<id>.outputs.<NAME>` — including
   glob-expanded names.
-- **Fail-closed installer.** v1 continued with an unverified binary when
-  `versions.json` was unreachable or listed no hash. v2 aborts unless the
-  downloaded `pass-cli` matches the SHA-256 listed in Proton's
-  `versions.json`. `pass-cli-version: latest` now also resolves through the
-  manifest and is verified (v1 piped Proton's `install.sh` to bash,
-  unverified).
+- **Fail-closed installer, sourced from GitHub Releases.** v1 piped Proton's
+  `install.sh` to bash, unverified. v2 downloads
+  `github.com/protonpass/pass-cli` release assets and refuses to run a binary
+  whose SHA-256 does not match the release's `.sha256` asset (or your `hash`
+  input). Proton's `versions.json` is no longer used: it describes only the
+  latest release, so it cannot verify a pinned version.
+- **`hash` and `platform` inputs** (same names and semantics as
+  `protonpass/load-secret-action` / `protonpass/install-cli-action`).
+- **PAT via environment.** `PROTON_PASS_PERSONAL_ACCESS_TOKEN` on the step is
+  accepted when the `personal-access-token` input is empty, so upstream
+  workflows are drop-in.
+- **Pre-installed CLI is respected.** With `pass-cli-version` unset (or
+  `latest`), a `pass-cli` already on PATH — e.g. from
+  `protonpass/install-cli-action` — is used as-is.
 - **Session bound to the token.** If a `pass-cli` session already exists on
   the runner but was created from a different PAT, v2 forces a fresh login
   instead of silently reusing it.
@@ -54,6 +62,13 @@ deliberate behavior changes.
 
 ## Behavior changes to be aware of
 
+- **Default `pass-cli` is 2.3.3 (was 2.1.0), minimum 2.1.2.** Releases before
+  2.1.2 are not published on GitHub Releases and cannot be verified, so
+  `pass-cli-version: 2.1.0` now fails with an explicit error. Pin `2.1.2` or
+  newer, or leave the input empty.
+- **An explicit `pass-cli-version` is enforced.** If a different `pass-cli` is
+  already on PATH it is replaced. Leave the input empty to accept whatever is
+  installed.
 - **Values are byte-exact (no trimming).** v1's bash command substitution
   stripped all trailing newlines from resolved values; upstream's node
   action trimmed all surrounding whitespace. v2 exports exactly the bytes

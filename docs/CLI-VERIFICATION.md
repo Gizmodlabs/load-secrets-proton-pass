@@ -6,13 +6,19 @@ Verification of the action's scripts against the [official Proton Pass CLI docum
 
 | What | Action uses | Real CLI | Status |
 |------|-------------|----------|--------|
-| Install | Downloads the binary URL listed in [versions.json](https://proton.me/download/pass-cli/versions.json) and verifies its SHA-256 (fail-closed; `latest` resolves through the same manifest) | Same binaries Proton publishes | Correct |
+| Install | Downloads the requested [GitHub release](https://github.com/protonpass/pass-cli/releases) asset and verifies it against the asset's `.sha256` sidecar or the caller's `hash` input | Official release binary and checksum | Correct |
 | Login (PAT) | `pass-cli login` (with `PROTON_PASS_PERSONAL_ACCESS_TOKEN` in env) | Same | Correct |
 | Session probe | `pass-cli info` | Same | Correct |
 | Read field value | `pass-cli item view -- "pass://vault/item/field"` (`--` guards against flag-like values) | Same | Correct |
 | List item fields (glob) | `pass-cli item view --output json -- "pass://vault/item"` | Same | Correct |
 | Inject template | `pass-cli inject -i template -o output` | Same | Correct |
 | Logout | `pass-cli logout` | Same | Correct |
+
+A real-network installer smoke on 2026-09-03 verified download, SHA-256, and
+tool-cache installation of `pass-cli` 2.3.3 for `macos-aarch64`. The real-vault
+E2E workflow targets that pinned default, then reinstalls 2.3.2 to verify
+explicit-version enforcement. Its covered commands are expected to use the same
+output shapes as 2.1.0; any observed difference must be recorded here.
 
 ## Environment Variables
 
@@ -79,3 +85,5 @@ If all four commands succeed, the action will work on GitHub Actions.
 - [Personal Access Tokens](https://protonpass.github.io/pass-cli/commands/personal-access-token/)
 - [Secret References](https://protonpass.github.io/pass-cli/commands/contents/secret-references/)
 - [Configuration](https://protonpass.github.io/pass-cli/get-started/configuration/)
+- [pass-cli GitHub Releases](https://github.com/protonpass/pass-cli/releases) — release assets and `.sha256` sidecars
+- [Proton download manifest](https://proton.me/download/pass-cli/versions.json) — `formatVersion: 1` with a single latest-only `passCliVersions` object, so it cannot verify arbitrary pinned releases

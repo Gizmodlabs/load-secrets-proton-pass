@@ -93,6 +93,36 @@ Every `pass://` env var on the action step is resolved and re-exported as a regu
   run: ./migrate.sh   # DB_PASSWORD is in env
 ```
 
+### Pin the CLI version and hash
+
+```yaml
+- uses: gizmodlabs/load-secrets-proton-pass@v1
+  with:
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+    pass-cli-version: "2.3.3"
+    hash: "b5b49a8b3fd0af8830c0c1979f28ea0c90ccece73f59023a8bca8245d4b68da9" # linux-x86_64
+  env:
+    DB_PASSWORD: "pass://Production/Database/password"
+```
+
+The hash is per platform. Get it from the release asset
+`https://github.com/protonpass/pass-cli/releases/download/<version>/pass-cli-<platform>[.zip].sha256`.
+Without `hash`, the action fetches that same file and verifies against it.
+
+### Using with `protonpass/install-cli-action`
+
+If `pass-cli` is already on PATH and you leave `pass-cli-version` empty, the action uses it as-is.
+
+```yaml
+- uses: protonpass/install-cli-action@v1
+  with:
+    version: "2.3.3"
+- uses: gizmodlabs/load-secrets-proton-pass@v1
+  env:
+    PROTON_PASS_PERSONAL_ACCESS_TOKEN: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+    API_KEY: "pass://Production/Stripe/secret-key"
+```
+
 ### Bulk-load every field on an item (glob URIs)
 
 When an item carries several related fields (a database item with `host`, `port`, `password`, `database_name`), use `*` in the field segment to pull all of them with one entry:
@@ -181,9 +211,11 @@ With an explicit output path:
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `personal-access-token` | Yes | | Proton Pass PAT (`pst_xxxx::TOKENKEY`) |
+| `personal-access-token` | No* | | Proton Pass PAT (`pst_xxxx::TOKENKEY`). *Required unless the step sets the `PROTON_PASS_PERSONAL_ACCESS_TOKEN` env var (upstream-compatible). |
 | `env-template` | No | `''` | Path to a template file with `pass://` references |
-| `pass-cli-version` | No | `2.1.0` | Pinned for reproducibility. Override with `latest` or any version listed at [proton.me/download/pass-cli/versions.json](https://proton.me/download/pass-cli/versions.json) |
+| `pass-cli-version` | No | `''` → `2.3.3` | `MAJOR.MINOR.PATCH` or `latest`. Empty installs the pinned default **or** accepts any `pass-cli` already on PATH (e.g. from `protonpass/install-cli-action`). An explicit version is enforced. Minimum `2.1.2`. |
+| `hash` | No | `''` | Expected SHA-256 of the `pass-cli` download. Empty → fetched from the release's official `.sha256` asset. Always verified. |
+| `platform` | No | auto | `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, `macos-aarch64`, `windows-x86_64`. |
 | `mask-values` | No | `true` | Mask resolved values in workflow logs |
 | `strict` | No | `true` | Fail the step when any `pass://` URI cannot be resolved. Set `false` for best-effort mode: failures become warnings and the step continues |
 | `output-path` | No | `''` | Where to write the rendered template. Defaults to stripping `.template`/`.tpl`, else `<input>.resolved`. |
@@ -270,6 +302,7 @@ The workflow references the PAT as `${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKE
 
 - A [Proton Pass Plus+](https://proton.me/pass) subscription (required for CLI access)
 - The [Proton Pass CLI](https://proton.me/support/pass-cli) — installed automatically on the runner by this action; needed locally only to mint the PAT
+- `pass-cli` 2.1.2 or newer when the action installs it from GitHub Releases
 
 ## Project status
 
