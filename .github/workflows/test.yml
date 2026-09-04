@@ -102,6 +102,8 @@ jobs:
           echo "FAIL: contains() gate on DB_PASSWORD did not match"
           exit 1
 
+  # No pass-cli-version here on purpose: exercises the "unset accepts the
+  # pre-installed CLI" path (install-cli-action interop).
   smoke-glob:
     strategy:
       fail-fast: false
@@ -118,7 +120,6 @@ jobs:
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"
           mask-values: "false"
         env:
           DB: "pass://GithubActions/multi-field-item/*"
@@ -156,7 +157,6 @@ jobs:
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"
           env-template: "tests/.output/test.env.template"
           output-path: "tests/.output/.env.production"
 
@@ -188,7 +188,6 @@ jobs:
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"
         env:
           SSH_KEY: "pass://GithubActions/ssh-key-item/private-key"
 
