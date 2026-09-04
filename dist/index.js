@@ -21762,19 +21762,29 @@ var core7 = __toESM(require_core(), 1);
 
 // src/inputs.ts
 var core = __toESM(require_core(), 1);
-var DEFAULT_PASS_CLI_VERSION = "2.1.0";
+var PAT_ENV_VAR = "PROTON_PASS_PERSONAL_ACCESS_TOKEN";
 function readInputs() {
-  const pat = core.getInput("personal-access-token", { required: true });
-  core.setSecret(pat);
   return {
-    pat,
+    pat: readPat(),
     envTemplate: core.getInput("env-template"),
-    passCliVersion: core.getInput("pass-cli-version") || DEFAULT_PASS_CLI_VERSION,
+    passCliVersion: core.getInput("pass-cli-version"),
+    passCliHash: core.getInput("hash"),
+    platform: core.getInput("platform"),
     maskValues: booleanInput("mask-values", true),
     strict: booleanInput("strict", true),
     outputPath: core.getInput("output-path"),
     exportEnv: booleanInput("export-env", true)
   };
+}
+function readPat() {
+  const pat = core.getInput("personal-access-token") || process.env[PAT_ENV_VAR] || "";
+  if (pat === "") {
+    throw new Error(
+      `No Proton Pass token: set the personal-access-token input or the ${PAT_ENV_VAR} environment variable.`
+    );
+  }
+  core.setSecret(pat);
+  return pat;
 }
 function booleanInput(name, defaultValue) {
   const raw = core.getInput(name);
@@ -21891,7 +21901,7 @@ async function resolveInstallerSpec(versionInput, platform, hashInput, http) {
 
 // src/installer/install.ts
 var HTTP_USER_AGENT = "load-secrets-proton-pass";
-var DEFAULT_PASS_CLI_VERSION2 = "2.3.3";
+var DEFAULT_PASS_CLI_VERSION = "2.3.3";
 async function verifySha256(filePath, expectedHex) {
   const fileBytes = await import_node_fs.promises.readFile(filePath);
   const actualHex = (0, import_node_crypto.createHash)("sha256").update(fileBytes).digest("hex");
@@ -21915,7 +21925,7 @@ async function ensurePassCli(options) {
     }
     core2.info(`Installed pass-cli (${preinstalled}) does not match requested (${options.version}), reinstalling`);
   }
-  const requested = options.version === "" ? DEFAULT_PASS_CLI_VERSION2 : options.version;
+  const requested = options.version === "" ? DEFAULT_PASS_CLI_VERSION : options.version;
   const platform = resolvePlatform(options.platform);
   core2.info(`Platform: ${platform}`);
   const spec = await resolveInstallerSpec(requested, platform, options.hash, releaseHttp());
@@ -22352,7 +22362,11 @@ var RESOLVED_KEYS_OUTPUT = "resolved-keys";
 async function run() {
   try {
     const inputs = readInputs();
-    await ensurePassCli({ version: inputs.passCliVersion, hash: "", platform: "" });
+    await ensurePassCli({
+      version: inputs.passCliVersion,
+      hash: inputs.passCliHash,
+      platform: inputs.platform
+    });
     await establishSession(inputs.pat);
     const annotate = inputs.strict ? core7.error : core7.warning;
     const refs = findSecretRefs(process.env);
