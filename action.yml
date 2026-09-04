@@ -8,16 +8,24 @@ branding:
 
 inputs:
   personal-access-token:
-    description: 'Proton Pass Personal Access Token in the format `pst_xxxx::TOKENKEY`. Generate with `pass-cli pat create`.'
-    required: true
+    description: 'Proton Pass Personal Access Token (`pst_xxxx::TOKENKEY`, from `pass-cli pat create`). Optional when the step sets the PROTON_PASS_PERSONAL_ACCESS_TOKEN environment variable instead (compatible with protonpass/load-secret-action).'
+    required: false
   env-template:
     description: 'Path to .env template file with pass:// references to inject'
     required: false
     default: ''
   pass-cli-version:
-    description: 'Proton Pass CLI version to install (pinned default for reproducibility — override to `latest` or another version if needed)'
+    description: 'pass-cli version to install: MAJOR.MINOR.PATCH or `latest`. Leave empty (default) to install 2.3.3, or to accept any pass-cli already on PATH (e.g. from protonpass/install-cli-action). An explicit version is enforced: a different pre-installed pass-cli is replaced. Versions before 2.1.2 are not available.'
     required: false
-    default: '2.1.0'
+    default: ''
+  hash:
+    description: 'Expected SHA-256 (64 hex chars) of the downloaded pass-cli binary. When empty the hash is fetched from the official `.sha256` release asset. Verification is mandatory either way; a mismatch fails the step.'
+    required: false
+    default: ''
+  platform:
+    description: 'Target platform, auto-detected when empty. One of: linux-x86_64, linux-aarch64, macos-x86_64, macos-aarch64, windows-x86_64.'
+    required: false
+    default: ''
   mask-values:
     description: 'Mask resolved secret values in logs'
     required: false
