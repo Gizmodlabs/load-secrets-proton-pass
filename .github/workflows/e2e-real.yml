@@ -1,0 +1,79 @@
+name: E2E (real Proton Pass)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1' # weekly — catches upstream pass-cli release/asset changes
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # `secrets` is not available in job-level `if`; gate steps on this instead.
+      # Forks and dependabot have no secret -> every step below is skipped.
+      HAS_PAT: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Skipped (no PAT available)
+        if: env.HAS_PAT != 'true'
+        run: echo "PROTON_PASS_PERSONAL_ACCESS_TOKEN not available in this context; skipping real-vault e2e."
+
+      # No mock on PATH: exercises the real GitHub release download + .sha256 verification
+      # with the pinned default version.
+      - name: Load secrets (literal + glob, default pass-cli)
+        if: env.HAS_PAT == 'true'
+        id: secrets
+        uses: ./
+        with:
+          personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+        env:
+          E2E_EMAIL: "pass://GithubActions/load-secrets-proton-pass-test/Email"
+          E2E_ALL: "pass://GithubActions/load-secrets-proton-pass-test/*"
+
+      - name: Assert literal resolved (env + step output)
+        if: env.HAS_PAT == 'true'
+        shell: bash
+        env:
+          OUT_EMAIL: ${{ steps.secrets.outputs.E2E_EMAIL }}
+        run: |
+          [[ -n "${E2E_EMAIL%$'\n'}" ]] || { echo "FAIL: E2E_EMAIL env empty"; exit 1; }
+          [[ -n "${OUT_EMAIL%$'\n'}" ]] || { echo "FAIL: E2E_EMAIL step output empty"; exit 1; }
+          echo "E2E_EMAIL resolved (masked): $E2E_EMAIL"
+
+      - name: Assert glob expanded (issue #17)
+        if: env.HAS_PAT == 'true'
+        shell: bash
+        env:
+          RESOLVED_KEYS: ${{ steps.secrets.outputs.resolved-keys }}
+        run: |
+          echo "resolved-keys: $RESOLVED_KEYS"
+          [[ "$RESOLVED_KEYS" == *"E2E_EMAIL"* ]] || { echo "FAIL: E2E_EMAIL missing from resolved-keys"; exit 1; }
+          [[ "$RESOLVED_KEYS" == *"E2E_ALL_"* ]] || { echo "FAIL: glob produced no E2E_ALL_* keys"; exit 1; }
+
+      # Second invocation: an explicit, different version must trigger a reinstall
+      # (exercises the explicit-version branch + a second real download).
+      - name: Reinstall on explicit version mismatch
+        if: env.HAS_PAT == 'true'
+        uses: ./
+        with:
+          personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+          pass-cli-version: "2.3.2"
+        env:
+          E2E_AGAIN: "pass://GithubActions/load-secrets-proton-pass-test/Email"
+
+      - name: Assert reinstalled version is the requested one
+        if: env.HAS_PAT == 'true'
+        shell: bash
+        run: |
+          v="$(pass-cli --version)"
+          echo "pass-cli --version: $v"
+          [[ "$v" == *"2.3.2"* ]] || { echo "FAIL: expected pass-cli 2.3.2 on PATH"; exit 1; }
+          [[ -n "${E2E_AGAIN%$'\n'}" ]] || { echo "FAIL: E2E_AGAIN empty after reinstall"; exit 1; }
