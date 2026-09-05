@@ -36,7 +36,7 @@ test('fix #5: single-line values keep the exact bytes pass-cli printed', async (
   const result = await runAction({
     env: { DB_PASSWORD: 'pass://GithubActions/load-secrets-proton-pass-test/Password' },
   })
-  assert.equal(result.env['DB_PASSWORD'], 'mock-real-password\n', 'no trimming applied')
+  assert.equal(result.env['DB_PASSWORD'], 'mock-real-password', 'only the CLI print newline is removed')
 })
 
 test('export-env=false still publishes resolved-keys and per-var outputs', async () => {

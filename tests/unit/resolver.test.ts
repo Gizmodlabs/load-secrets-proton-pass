@@ -43,7 +43,7 @@ test('findSecretRefs picks up only full pass:// URIs', () => {
   )
 })
 
-test('literal value is captured byte-exact from stdout — no trimming', async () => {
+test('literal value is stdout minus exactly one trailing newline — no other trimming', async () => {
   const { runner } = cannedRunner([
     {
       match: args => args.includes('pass://Vault/Item/key'),
@@ -52,8 +52,32 @@ test('literal value is captured byte-exact from stdout — no trimming', async (
   ])
   const { annotate } = collectAnnotations()
   const report = await resolveSecrets(refsFor({ KEY: 'pass://Vault/Item/key' }), { annotate, runner })
-  assert.equal(report.resolved[0]?.value, 'line one\nline two\n')
+  assert.equal(report.resolved[0]?.value, 'line one\nline two')
   assert.equal(report.failures.length, 0)
+})
+
+test('only one trailing newline is removed — a stored trailing newline (PEM) survives', async () => {
+  const { runner } = cannedRunner([
+    {
+      match: args => args.includes('pass://Vault/Item/key'),
+      result: { stdout: '-----BEGIN KEY-----\nabc\n-----END KEY-----\n\n' },
+    },
+  ])
+  const { annotate } = collectAnnotations()
+  const report = await resolveSecrets(refsFor({ KEY: 'pass://Vault/Item/key' }), { annotate, runner })
+  assert.equal(report.resolved[0]?.value, '-----BEGIN KEY-----\nabc\n-----END KEY-----\n')
+})
+
+test('stdout without a trailing newline is passed through unchanged', async () => {
+  const { runner } = cannedRunner([
+    {
+      match: args => args.includes('pass://Vault/Item/key'),
+      result: { stdout: '  padded value ' },
+    },
+  ])
+  const { annotate } = collectAnnotations()
+  const report = await resolveSecrets(refsFor({ KEY: 'pass://Vault/Item/key' }), { annotate, runner })
+  assert.equal(report.resolved[0]?.value, '  padded value ')
 })
 
 test('literal invocations use the -- argument separator before the URI', async () => {

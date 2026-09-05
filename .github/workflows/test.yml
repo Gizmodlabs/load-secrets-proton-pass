@@ -17,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -53,6 +53,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Job-level so the verify step can prove the action left it untouched.
+      NORMAL_VAR: "not-a-secret"
     steps:
       - uses: actions/checkout@v7
 
@@ -68,15 +71,13 @@ jobs:
         env:
           DB_PASSWORD: "pass://GithubActions/load-secrets-proton-pass-test/Password"
           API_KEY: "pass://GithubActions/load-secrets-proton-pass-test/Email"
-          NORMAL_VAR: "not-a-secret"
 
-      # Values are byte-exact from pass-cli, so a trailing newline from the
-      # CLI's own print is preserved — assertions strip exactly one.
+      # Values are exactly the stored bytes (the CLI's print newline is stripped).
       - name: Verify env vars
         shell: bash
         run: |
-          [[ "${DB_PASSWORD%$'\n'}" == "mock-real-password" ]] || { echo "FAIL: DB_PASSWORD mismatch"; exit 1; }
-          [[ "${API_KEY%$'\n'}" == "mock@example.com" ]] || { echo "FAIL: API_KEY mismatch"; exit 1; }
+          [[ "$DB_PASSWORD" == "mock-real-password" ]] || { echo "FAIL: DB_PASSWORD mismatch"; exit 1; }
+          [[ "$API_KEY" == "mock@example.com" ]] || { echo "FAIL: API_KEY mismatch"; exit 1; }
           [[ "$NORMAL_VAR" == "not-a-secret" ]] || { echo "FAIL: NORMAL_VAR modified"; exit 1; }
           echo "Environment variables verified"
 
@@ -88,7 +89,7 @@ jobs:
         run: |
           [[ "$RESOLVED_KEYS" == "API_KEY,DB_PASSWORD" ]] || { echo "FAIL: resolved-keys was '$RESOLVED_KEYS'"; exit 1; }
           [[ "$RESOLVED_KEYS" != *"mock-real-password"* ]] || { echo "FAIL: secret value leaked into resolved-keys"; exit 1; }
-          [[ "${OUTPUT_DB_PASSWORD%$'\n'}" == "mock-real-password" ]] || { echo "FAIL: per-var step output missing"; exit 1; }
+          [[ "$OUTPUT_DB_PASSWORD" == "mock-real-password" ]] || { echo "FAIL: per-var step output missing"; exit 1; }
           echo "resolved-keys + per-var outputs verified"
 
       - name: Gate on resolved-keys via contains()
@@ -127,9 +128,9 @@ jobs:
       - name: Verify expanded env vars
         shell: bash
         run: |
-          [[ "${DB_HOST%$'\n'}" == "db.example.com" ]] || { echo "FAIL: DB_HOST='$DB_HOST'"; exit 1; }
-          [[ "${DB_PORT%$'\n'}" == "5432" ]] || { echo "FAIL: DB_PORT='$DB_PORT'"; exit 1; }
-          [[ "${DB_PASSWORD%$'\n'}" == "hunter2" ]] || { echo "FAIL: DB_PASSWORD='$DB_PASSWORD'"; exit 1; }
+          [[ "$DB_HOST" == "db.example.com" ]] || { echo "FAIL: DB_HOST='$DB_HOST'"; exit 1; }
+          [[ "$DB_PORT" == "5432" ]] || { echo "FAIL: DB_PORT='$DB_PORT'"; exit 1; }
+          [[ "$DB_PASSWORD" == "hunter2" ]] || { echo "FAIL: DB_PASSWORD='$DB_PASSWORD'"; exit 1; }
           echo "Glob expansion verified"
 
   smoke-template:

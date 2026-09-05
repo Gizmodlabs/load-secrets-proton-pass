@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Mock pass-cli for offline testing. Deterministic values per URI, mirroring
 // tests/mock-pass-cli.sh from the bash version, plus a multiline PEM item.
+// Like the real CLI, `item view` prints the stored value followed by one newline.
 // Understands the `--` argument separator the action now always passes.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { PEM_KEY } from './pem-fixture.mjs'
@@ -48,13 +49,13 @@ const ITEM_JSON = {
 }
 
 const FIELD_VALUES = {
-  'GithubActions/load-secrets-proton-pass-test/Password': 'mock-real-password\n',
-  'GithubActions/load-secrets-proton-pass-test/Email': 'mock@example.com\n',
-  'GithubActions/multi-field-item/host': 'db.example.com\n',
-  'GithubActions/multi-field-item/port': '5432\n',
-  'GithubActions/multi-field-item/password': 'hunter2\n',
-  'GithubActions/sanitize-item/API Key': 'sanitize-apikey-value\n',
-  'GithubActions/sanitize-item/database-name': 'sanitize-dbname-value\n',
+  'GithubActions/load-secrets-proton-pass-test/Password': 'mock-real-password',
+  'GithubActions/load-secrets-proton-pass-test/Email': 'mock@example.com',
+  'GithubActions/multi-field-item/host': 'db.example.com',
+  'GithubActions/multi-field-item/port': '5432',
+  'GithubActions/multi-field-item/password': 'hunter2',
+  'GithubActions/sanitize-item/API Key': 'sanitize-apikey-value',
+  'GithubActions/sanitize-item/database-name': 'sanitize-dbname-value',
   'GithubActions/ssh-key-item/private-key': PEM_KEY,
 }
 
@@ -83,7 +84,8 @@ function itemView(args) {
   if (path.includes('Does-Not-Exist')) {
     fail("Error: Could not find item by name 'Does-Not-Exist'")
   }
-  out(FIELD_VALUES[path] ?? 'mock-secret-value\n')
+  // Real pass-cli prints the stored value with println!: value + exactly one newline.
+  out(`${FIELD_VALUES[path] ?? 'mock-secret-value'}\n`)
   process.exit(0)
 }
 

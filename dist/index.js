@@ -21879,7 +21879,7 @@ async function fetchReleaseChecksum(version, platform, http) {
   const res = await http.getText(url);
   if (res.statusCode !== 200) {
     throw new Error(
-      `Could not fetch ${url} (HTTP ${res.statusCode}). Refusing to install an unverified binary. pass-cli releases before 2.1.2 are not published on GitHub Releases \u2014 see MIGRATION.md.`
+      `Could not fetch ${url} (HTTP ${res.statusCode}). Refusing to install an unverified binary. pass-cli releases before 2.1.2 are not published on GitHub Releases \u2014 see CHANGELOG.md.`
     );
   }
   if (res.body.length > MAX_SIDECAR_BYTES) {
@@ -22037,8 +22037,9 @@ async function establishSession(pat, runner = runPassCli) {
   core3.info("Logging in to Proton Pass...");
   const login = await runner(["login"], { PROTON_PASS_PERSONAL_ACCESS_TOKEN: pat });
   if (login.exitCode !== 0) {
+    const detail = stderrDetail(login);
     throw new Error(
-      `pass-cli login failed (exit code ${login.exitCode}). Check that the personal access token is valid, unexpired, and has vault access.`
+      `pass-cli login failed (exit code ${login.exitCode}${detail ? `: ${detail}` : ""}). Check that the personal access token is valid, unexpired, and has vault access.`
     );
   }
   const verify = await runner(["info"]);
@@ -22213,7 +22214,10 @@ async function resolveLiteral(envKey, uri, parsed, context) {
     context.failures.push({ name: envKey, uri, detail });
     return;
   }
-  context.resolved.push({ name: envKey, uri, value: result.stdout });
+  context.resolved.push({ name: envKey, uri, value: stripPrintNewline(result.stdout) });
+}
+function stripPrintNewline(stdout) {
+  return stdout.endsWith("\n") ? stdout.slice(0, -1) : stdout;
 }
 async function resolveFieldGlob(envKey, uri, context) {
   const globUri = uri.raw;

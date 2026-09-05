@@ -44,8 +44,8 @@ jobs:
         env:
           OUT_EMAIL: ${{ steps.secrets.outputs.E2E_EMAIL }}
         run: |
-          [[ -n "${E2E_EMAIL%$'\n'}" ]] || { echo "FAIL: E2E_EMAIL env empty"; exit 1; }
-          [[ -n "${OUT_EMAIL%$'\n'}" ]] || { echo "FAIL: E2E_EMAIL step output empty"; exit 1; }
+          [[ -n "$E2E_EMAIL" ]] || { echo "FAIL: E2E_EMAIL env empty"; exit 1; }
+          [[ -n "$OUT_EMAIL" ]] || { echo "FAIL: E2E_EMAIL step output empty"; exit 1; }
           echo "E2E_EMAIL resolved (masked): $E2E_EMAIL"
 
       - name: Assert glob expanded (issue #17)
@@ -76,4 +76,4 @@ jobs:
           v="$(pass-cli --version)"
           echo "pass-cli --version: $v"
           [[ "$v" == *"2.3.2"* ]] || { echo "FAIL: expected pass-cli 2.3.2 on PATH"; exit 1; }
-          [[ -n "${E2E_AGAIN%$'\n'}" ]] || { echo "FAIL: E2E_AGAIN empty after reinstall"; exit 1; }
+          [[ -n "$E2E_AGAIN" ]] || { echo "FAIL: E2E_AGAIN empty after reinstall"; exit 1; }

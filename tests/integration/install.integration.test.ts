@@ -11,7 +11,7 @@ test('unset pass-cli-version accepts the pre-installed CLI without touching the 
   const result = await runAction({ env: { DB_PASSWORD: URI }, inputs: { 'pass-cli-version': '' } })
   assert.equal(result.exitCode, 0, result.stdout)
   assert.match(result.stdout, /pass-cli already installed: pass-cli 1\.0\.0 \(mock\)/)
-  assert.equal(result.env['DB_PASSWORD'], 'mock-real-password\n')
+  assert.equal(result.env['DB_PASSWORD'], 'mock-real-password')
 })
 
 test('latest accepts the pre-installed CLI', async () => {
@@ -26,7 +26,7 @@ test('PAT can come from PROTON_PASS_PERSONAL_ACCESS_TOKEN when the input is empt
     inputs: { 'personal-access-token': '' },
   })
   assert.equal(result.exitCode, 0, result.stdout)
-  assert.equal(result.env['DB_PASSWORD'], 'mock-real-password\n')
+  assert.equal(result.env['DB_PASSWORD'], 'mock-real-password')
   assert.ok(
     result.stdout.includes(`::add-mask::${MOCK_PAT}`),
     'PAT from the environment must be registered with the runner masker',

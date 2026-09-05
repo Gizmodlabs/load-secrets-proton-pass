@@ -4,8 +4,12 @@ on: [push]
 jobs:
   test-mock:
     runs-on: ubuntu-latest
+    env:
+      # Job-level so the verify step can prove the action left it untouched
+      # (a step-level env var is not visible to later steps on real runners).
+      NORMAL_VAR: "not-a-secret"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mock CLI
         run: node tests/fixtures/install-mock.mjs
@@ -19,14 +23,12 @@ jobs:
         env:
           DB_PASSWORD: "pass://GithubActions/load-secrets-proton-pass-test/Password"
           API_KEY: "pass://GithubActions/load-secrets-proton-pass-test/Email"
-          NORMAL_VAR: "not-a-secret"
 
-      # Values are byte-exact from pass-cli (trailing newline preserved), so
-      # assertions strip exactly one trailing newline.
+      # Values are exactly the stored bytes (the CLI's print newline is stripped).
       - name: Verify env vars
         run: |
-          [[ "${DB_PASSWORD%$'\n'}" == "mock-real-password" ]] || { echo "FAIL: DB_PASSWORD not set"; exit 1; }
-          [[ "${API_KEY%$'\n'}" == "mock@example.com" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
+          [[ "$DB_PASSWORD" == "mock-real-password" ]] || { echo "FAIL: DB_PASSWORD not set"; exit 1; }
+          [[ "$API_KEY" == "mock@example.com" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
           [[ "$NORMAL_VAR" == "not-a-secret" ]] || { echo "FAIL: NORMAL_VAR modified"; exit 1; }
           echo "Environment variables verified"
 
@@ -56,7 +58,7 @@ jobs:
   test-template:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mock CLI
         run: node tests/fixtures/install-mock.mjs
@@ -85,7 +87,7 @@ jobs:
   test-template-output-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mock CLI
         run: node tests/fixtures/install-mock.mjs

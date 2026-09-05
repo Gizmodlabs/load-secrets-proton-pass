@@ -22,8 +22,9 @@ interface ResolverContext {
 /**
  * Resolve every scanned pass:// reference. Never throws on a per-secret
  * failure — failures accumulate in the report and the caller decides
- * (strict mode) whether they fail the step. Values are captured byte-exact
- * from pass-cli stdout: no trimming, ever.
+ * (strict mode) whether they fail the step. Values are the stored bytes:
+ * pass-cli prints a field value followed by exactly one newline (Rust
+ * `println!`), and that single newline is the only thing ever removed.
  */
 export async function resolveSecrets(
   refs: SecretRef[],
@@ -92,7 +93,16 @@ async function resolveLiteral(
     context.failures.push({ name: envKey, uri, detail })
     return
   }
-  context.resolved.push({ name: envKey, uri, value: result.stdout })
+  context.resolved.push({ name: envKey, uri, value: stripPrintNewline(result.stdout) })
+}
+
+/**
+ * pass-cli prints a value with `println!`, so stdout is `<stored bytes>\n`.
+ * Remove exactly that one newline. A stored value that itself ends in a
+ * newline (PEM/SSH keys) keeps it; nothing else is trimmed.
+ */
+export function stripPrintNewline(stdout: string): string {
+  return stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout
 }
 
 async function resolveFieldGlob(envKey: string, uri: PassUri, context: ResolverContext): Promise<void> {

@@ -3,7 +3,7 @@ import { lstatSync, mkdirSync, chmodSync, mkdtempSync, readFileSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as core from '@actions/core'
-import { runPassCli, type CliRunner } from '../pass-cli.ts'
+import { runPassCli, stderrDetail, type CliRunner } from '../pass-cli.ts'
 
 /**
  * Name of the file (inside the session dir) recording which PAT the current
@@ -50,8 +50,9 @@ export async function establishSession(pat: string, runner: CliRunner = runPassC
   core.info('Logging in to Proton Pass...')
   const login = await runner(['login'], { PROTON_PASS_PERSONAL_ACCESS_TOKEN: pat })
   if (login.exitCode !== 0) {
+    const detail = stderrDetail(login)
     throw new Error(
-      `pass-cli login failed (exit code ${login.exitCode}). ` +
+      `pass-cli login failed (exit code ${login.exitCode}${detail ? `: ${detail}` : ''}). ` +
         'Check that the personal access token is valid, unexpired, and has vault access.',
     )
   }
