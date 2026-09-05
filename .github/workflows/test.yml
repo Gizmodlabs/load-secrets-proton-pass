@@ -6,93 +6,91 @@ on:
   pull_request:
 
 jobs:
-  shellcheck:
-    runs-on: ubuntu-latest
+  # Typecheck (TS7 strict, --noEmit only), lint, and the full node:test
+  # suite (unit + the ported 63-assertion integration spec) on every OS the
+  # action supports.
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - name: Ensure shellcheck installed
-        run: command -v shellcheck >/dev/null || { sudo apt-get update && sudo apt-get install -y shellcheck; }
-      - name: Lint shell scripts
-        run: shellcheck scripts/*.sh tests/*.sh
-
-  bash-suite:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Run bash test suite (mock pass-cli)
-        run: bash tests/run-local-tests.sh
-      - name: Upload test log
-        if: always()
-        uses: actions/upload-artifact@v7
+      - uses: actions/setup-node@v7
         with:
-          name: test-run-log
-          path: tests/.output/test-run.log
-          if-no-files-found: ignore
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
 
-  glob-action:
+  # dist/ is a committed build artifact — fail if it is stale relative to src/.
+  dist-freshness:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Fail when dist/ is stale
+        run: |
+          if ! git diff --exit-code dist/; then
+            echo "::error::dist/ is stale. Run 'npm run build' and commit the result."
+            exit 1
+          fi
+
+  # End-to-end smoke: run the real action (uses: ./) against the mock
+  # pass-cli on all three runner OSes.
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Job-level so the verify step can prove the action left it untouched.
+      NORMAL_VAR: "not-a-secret"
     steps:
       - uses: actions/checkout@v7
 
       - name: Install mock pass-cli
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
-
-      - name: Load secrets via field glob
-        uses: ./
-        with:
-          personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"
-          mask-values: "false"
-        env:
-          DB: "pass://GithubActions/multi-field-item/*"
-
-      - name: Verify expanded env vars
-        run: |
-          [[ "$DB_HOST" == "db.example.com" ]] || { echo "FAIL: DB_HOST=$DB_HOST"; exit 1; }
-          [[ "$DB_PORT" == "5432" ]] || { echo "FAIL: DB_PORT=$DB_PORT"; exit 1; }
-          [[ "$DB_PASSWORD" == "hunter2" ]] || { echo "FAIL: DB_PASSWORD=$DB_PASSWORD"; exit 1; }
-          echo "Glob expansion verified"
-
-  resolved-keys-action:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install mock pass-cli
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Load secrets (mock)
         id: secrets
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"
+          pass-cli-version: "1.0.0" # matches the mock's --version output
         env:
           DB_PASSWORD: "pass://GithubActions/load-secrets-proton-pass-test/Password"
           API_KEY: "pass://GithubActions/load-secrets-proton-pass-test/Email"
-          NORMAL_VAR: "not-a-secret"
 
-      # env-mapping is the user-facing pattern from the README; real runners
-      # evaluate it correctly (agent-ci pre-evaluates step env, so this
-      # assertion lives here rather than in tests/test-workflow.yml).
-      - name: Verify resolved-keys via env mapping
+      # Values are exactly the stored bytes (the CLI's print newline is stripped).
+      - name: Verify env vars
+        shell: bash
+        run: |
+          [[ "$DB_PASSWORD" == "mock-real-password" ]] || { echo "FAIL: DB_PASSWORD mismatch"; exit 1; }
+          [[ "$API_KEY" == "mock@example.com" ]] || { echo "FAIL: API_KEY mismatch"; exit 1; }
+          [[ "$NORMAL_VAR" == "not-a-secret" ]] || { echo "FAIL: NORMAL_VAR modified"; exit 1; }
+          echo "Environment variables verified"
+
+      - name: Verify resolved-keys and per-var step outputs
+        shell: bash
         env:
           RESOLVED_KEYS: ${{ steps.secrets.outputs.resolved-keys }}
+          OUTPUT_DB_PASSWORD: ${{ steps.secrets.outputs.DB_PASSWORD }}
         run: |
           [[ "$RESOLVED_KEYS" == "API_KEY,DB_PASSWORD" ]] || { echo "FAIL: resolved-keys was '$RESOLVED_KEYS'"; exit 1; }
-          echo "resolved-keys verified: sorted, names only"
-
-      - name: Verify no secret values in output
-        env:
-          RESOLVED_KEYS: ${{ steps.secrets.outputs.resolved-keys }}
-        run: |
           [[ "$RESOLVED_KEYS" != *"mock-real-password"* ]] || { echo "FAIL: secret value leaked into resolved-keys"; exit 1; }
-          [[ "$RESOLVED_KEYS" != *"mock@example.com"* ]] || { echo "FAIL: secret value leaked into resolved-keys"; exit 1; }
-          echo "No values in resolved-keys"
+          [[ "$OUTPUT_DB_PASSWORD" == "mock-real-password" ]] || { echo "FAIL: per-var step output missing"; exit 1; }
+          echo "resolved-keys + per-var outputs verified"
 
       - name: Gate on resolved-keys via contains()
         if: contains(steps.secrets.outputs.resolved-keys, 'DB_PASSWORD')
@@ -100,21 +98,55 @@ jobs:
 
       - name: Fail if contains() gate did not fire
         if: ${{ !contains(steps.secrets.outputs.resolved-keys, 'DB_PASSWORD') }}
+        shell: bash
         run: |
           echo "FAIL: contains() gate on DB_PASSWORD did not match"
           exit 1
 
-  template-action:
-    runs-on: ubuntu-latest
+  # No pass-cli-version here on purpose: exercises the "unset accepts the
+  # pre-installed CLI" path (install-cli-action interop).
+  smoke-glob:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Install mock pass-cli
+        run: node tests/fixtures/install-mock.mjs
+
+      - name: Load secrets via field glob
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+          mask-values: "false"
+        env:
+          DB: "pass://GithubActions/multi-field-item/*"
+
+      - name: Verify expanded env vars
+        shell: bash
         run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+          [[ "$DB_HOST" == "db.example.com" ]] || { echo "FAIL: DB_HOST='$DB_HOST'"; exit 1; }
+          [[ "$DB_PORT" == "5432" ]] || { echo "FAIL: DB_PORT='$DB_PORT'"; exit 1; }
+          [[ "$DB_PASSWORD" == "hunter2" ]] || { echo "FAIL: DB_PASSWORD='$DB_PASSWORD'"; exit 1; }
+          echo "Glob expansion verified"
+
+  smoke-template:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install mock pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Create template
+        shell: bash
         run: |
           mkdir -p tests/.output
           cat > tests/.output/test.env.template <<'EOF'
@@ -126,11 +158,11 @@ jobs:
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"
           env-template: "tests/.output/test.env.template"
           output-path: "tests/.output/.env.production"
 
       - name: Verify rendered file
+        shell: bash
         run: |
           [[ -f tests/.output/.env.production ]] || { echo "FAIL: override path not created"; exit 1; }
           grep -q "DB_PASSWORD=mock-injected-value" tests/.output/.env.production || { echo "FAIL: DB_PASSWORD not injected"; exit 1; }
@@ -138,10 +170,33 @@ jobs:
           [[ ! -f tests/.output/test.env ]] || { echo "FAIL: auto-derived path written despite override"; exit 1; }
           echo "Template injection verified"
 
-      - name: Upload rendered file
-        if: always()
-        uses: actions/upload-artifact@v7
+  # Multiline regression at the workflow level: an SSH-key style secret must
+  # arrive intact (fix #1/#5).
+  smoke-multiline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install mock pass-cli
+        run: node tests/fixtures/install-mock.mjs
+
+      - name: Load multiline secret (mock)
+        id: secrets
+        uses: ./
         with:
-          name: rendered-template
-          path: tests/.output/.env.production
-          if-no-files-found: ignore
+          personal-access-token: "pst_mock::TOKENKEY"
+        env:
+          SSH_KEY: "pass://GithubActions/ssh-key-item/private-key"
+
+      - name: Verify multiline value intact in env
+        shell: bash
+        run: |
+          [[ "$SSH_KEY" == *"BEGIN OPENSSH PRIVATE KEY"* ]] || { echo "FAIL: header missing"; exit 1; }
+          [[ "$SSH_KEY" == *"END OPENSSH PRIVATE KEY-----"* ]] || { echo "FAIL: footer missing"; exit 1; }
+          line_count=$(printf '%s' "$SSH_KEY" | wc -l | tr -d ' ')
+          [[ "$line_count" -ge 3 ]] || { echo "FAIL: newlines lost (lines=$line_count)"; exit 1; }
+          echo "Multiline secret verified intact"
