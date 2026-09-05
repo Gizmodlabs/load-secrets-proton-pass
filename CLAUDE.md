@@ -42,7 +42,7 @@ Domain model first, then orchestration:
 Key cross-cutting points:
 
 - **The action reads `pass://` URIs from its own step's `env:` block, not from inputs.** Callers set `env: KEY: "pass://..."` on the action step.
-- **Resolved values are byte-exact** — no trimming. Trailing newlines from pass-cli are preserved (PEM/SSH keys). Workflow assertions strip one trailing newline: `"${VAR%$'\n'}"`.
+- **Resolved values are the stored bytes.** pass-cli prints a value plus one `\n` (`println!`); `stripPrintNewline` in `src/resolver/resolver.ts` removes exactly that newline and nothing else, so PEM/SSH keys keep their own final newline. Never trim beyond that.
 - **`export-env` defaults to `true`** (unlike upstream protonpass/load-secret-action) to preserve this action's env-var contract. Step outputs (per-var + `resolved-keys`) are always written.
 - **Masking is opt-out** (`mask-values: true` default); the PAT is always masked.
 - `resolved-keys` is written **before** a strict-mode failure so `if: always()` steps can inspect it.
@@ -58,7 +58,7 @@ Key cross-cutting points:
 
 ## Constraints worth remembering
 
-- v1 remains the bash action for existing consumers; the TypeScript rewrite is released as v2. Treat incompatible `action.yml` input changes as breaking.
+- The rewrite ships on the v1 line: `v1.1.0` moves the floating `v1` tag to it, `v1.0.0` stays the bash composite. Every v1 input keeps its meaning; treat incompatible `action.yml` input changes as breaking. Known accepted deviations are listed in `CHANGELOG.md`.
 - TS7: `tsc` is typecheck-only (`--noEmit`); bundling is esbuild's job. Keep `erasableSyntaxOnly` (no enums/namespaces) so node can run the TS sources directly in tests.
 - The URI parse is greedy (`.+/.+/.+`): vault/item names containing `/` misparse (extra segments join the vault).
 - Secrets must never appear in logs, error messages, reports, or `resolved-keys` — names and URIs only. Values reach `$GITHUB_OUTPUT`/`$GITHUB_ENV` exclusively through `@actions/core`.

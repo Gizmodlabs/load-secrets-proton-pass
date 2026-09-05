@@ -93,7 +93,7 @@ export async function fetchReleaseChecksum(
     throw new Error(
       `Could not fetch ${url} (HTTP ${res.statusCode}). ` +
         'Refusing to install an unverified binary. ' +
-        'pass-cli releases before 2.1.2 are not published on GitHub Releases — see MIGRATION.md.',
+        'pass-cli releases before 2.1.2 are not published on GitHub Releases — see CHANGELOG.md.',
     )
   }
   if (res.body.length > MAX_SIDECAR_BYTES) {

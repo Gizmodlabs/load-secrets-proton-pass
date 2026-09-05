@@ -9,7 +9,7 @@ Verification of the action's scripts against the [official Proton Pass CLI docum
 | Install | Downloads the requested [GitHub release](https://github.com/protonpass/pass-cli/releases) asset and verifies it against the asset's `.sha256` sidecar or the caller's `hash` input | Official release binary and checksum | Correct |
 | Login (PAT) | `pass-cli login` (with `PROTON_PASS_PERSONAL_ACCESS_TOKEN` in env) | Same | Correct |
 | Session probe | `pass-cli info` | Same | Correct |
-| Read field value | `pass-cli item view -- "pass://vault/item/field"` (`--` guards against flag-like values) | Same | Correct |
+| Read field value | `pass-cli item view -- "pass://vault/item/field"` (`--` guards against flag-like values) | Same; prints the stored value followed by exactly one newline (`println!`, `pass-cli/src/commands/item/view.rs`), which the action strips | Correct |
 | List item fields (glob) | `pass-cli item view --output json -- "pass://vault/item"` | Same | Correct |
 | Inject template | `pass-cli inject -i template -o output` | Same | Correct |
 | Logout | `pass-cli logout` | Same | Correct |

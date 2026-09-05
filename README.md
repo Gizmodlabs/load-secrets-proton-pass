@@ -8,7 +8,7 @@ A GitHub Action that loads secrets from [Proton Pass](https://proton.me/pass) va
 
 Works like [1Password's load-secrets-action](https://github.com/1password/load-secrets-action), but backed by Proton Pass.
 
-A TypeScript action on the `node24` runtime; runs on ubuntu, macos, and windows GitHub-hosted runners. Migrating from the bash-based v1? See [MIGRATION.md](MIGRATION.md).
+Since v1.1.0 the action is TypeScript on the `node24` runtime and runs on ubuntu, macos, and windows GitHub-hosted runners. Upgrading from the bash-based 1.0.0? Nothing to change; see [CHANGELOG.md](CHANGELOG.md) for what is new.
 
 ## Quick Start
 
@@ -228,7 +228,7 @@ With an explicit output path:
 | `resolved-keys` | Comma-separated, sorted list of env var names the action populated (e.g. `API_KEY,DB_PASSWORD`). Names only — values never appear. Empty string when nothing resolved. |
 | `<NAME>` (per resolved var) | Every resolved variable is also exposed as its own masked step output, e.g. `steps.secrets.outputs.DB_PASSWORD` — including glob-expanded names. |
 
-Resolved values are exported **byte-exact** as printed by `pass-cli` — trailing newlines are preserved (they matter for SSH keys and PEM certificates). When comparing a resolved env var with strict string equality in bash, strip the CLI's trailing newline first: `"${DB_PASSWORD%$'\n'}"`.
+Resolved values are exactly what is stored in Proton Pass: `pass-cli` prints each value followed by one newline and the action strips exactly that newline. Single-line secrets compare cleanly (`[[ "$DB_PASSWORD" == "..." ]]`), and multi-line values such as SSH keys and PEM certificates keep their own trailing newline.
 
 Use it to gate downstream steps on what was actually loaded, without touching values:
 
