@@ -1,6 +1,7 @@
 .secrets
 .env
 .env.agent-ci
+.env.local-ci
 *.local
 .DS_Store
 
@@ -9,3 +10,6 @@ tests/test-real.yml
 
 # Output dir for workflow simulation (templates + rendered files)
 tests/.output/
+
+# npm
+node_modules/

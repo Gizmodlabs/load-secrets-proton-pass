@@ -4,29 +4,31 @@ on: [push]
 jobs:
   test-mock:
     runs-on: ubuntu-latest
+    env:
+      # Job-level so the verify step can prove the action left it untouched
+      # (a step-level env var is not visible to later steps on real runners).
+      NORMAL_VAR: "not-a-secret"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mock CLI
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Load secrets (mock)
         id: secrets
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"   # matches tests/mock-pass-cli.sh --version output
+          pass-cli-version: "1.0.0"   # matches the mock's --version output
         env:
           DB_PASSWORD: "pass://GithubActions/load-secrets-proton-pass-test/Password"
           API_KEY: "pass://GithubActions/load-secrets-proton-pass-test/Email"
-          NORMAL_VAR: "not-a-secret"
 
+      # Values are exactly the stored bytes (the CLI's print newline is stripped).
       - name: Verify env vars
         run: |
-          [[ -n "$DB_PASSWORD" ]] || { echo "FAIL: DB_PASSWORD not set"; exit 1; }
-          [[ -n "$API_KEY" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
+          [[ "$DB_PASSWORD" == "mock-real-password" ]] || { echo "FAIL: DB_PASSWORD not set"; exit 1; }
+          [[ "$API_KEY" == "mock@example.com" ]] || { echo "FAIL: API_KEY not set"; exit 1; }
           [[ "$NORMAL_VAR" == "not-a-secret" ]] || { echo "FAIL: NORMAL_VAR modified"; exit 1; }
           echo "Environment variables verified"
 
@@ -56,12 +58,10 @@ jobs:
   test-template:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mock CLI
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Create test template
         run: |
@@ -75,7 +75,7 @@ jobs:
         uses: ./
         with:
           personal-access-token: "pst_mock::TOKENKEY"
-          pass-cli-version: "1.0.0"   # matches tests/mock-pass-cli.sh --version output
+          pass-cli-version: "1.0.0"
           env-template: "/tmp/test.env.template"
 
       - name: Verify template output
@@ -87,12 +87,10 @@ jobs:
   test-template-output-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mock CLI
-        run: |
-          chmod +x tests/mock-pass-cli.sh
-          sudo cp tests/mock-pass-cli.sh /usr/local/bin/pass-cli
+        run: node tests/fixtures/install-mock.mjs
 
       - name: Create test template
         run: |
@@ -115,3 +113,56 @@ jobs:
           grep -q "mock-injected-value" tests/.output/.env.production || { echo "FAIL: Values not injected at override path"; exit 1; }
           [[ ! -f tests/.output/test.env ]] || { echo "FAIL: Auto-derived path was written despite override"; exit 1; }
           echo "Output-path override verified"
+
+  test-glob-output-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install mock CLI
+        run: node tests/fixtures/install-mock.mjs
+
+      - name: Load glob as step outputs only
+        id: secrets
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+          export-env: "false"
+          mask-values: "false"
+        env:
+          DB: "pass://GithubActions/multi-field-item/*"
+
+      - name: Verify outputs-only mode did not export the glob
+        run: |
+          [[ -z "${DB_HOST:-}" ]] || { echo "FAIL: DB_HOST should not be exported"; exit 1; }
+
+      - name: Verify glob step outputs
+        if: steps.secrets.outputs.DB_HOST == 'db.example.com' && steps.secrets.outputs.DB_PORT == '5432' && steps.secrets.outputs.DB_PASSWORD == 'hunter2'
+        run: echo "Glob step outputs verified"
+
+      - name: Fail if glob step outputs mismatched
+        if: steps.secrets.outputs.DB_HOST != 'db.example.com' || steps.secrets.outputs.DB_PORT != '5432' || steps.secrets.outputs.DB_PASSWORD != 'hunter2'
+        run: |
+          echo "FAIL: glob step outputs mismatched"
+          exit 1
+
+  test-multiline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install mock CLI
+        run: node tests/fixtures/install-mock.mjs
+
+      - name: Load multiline value
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+        env:
+          SSH_KEY: "pass://GithubActions/ssh-key-item/private-key"
+
+      - name: Verify multiline value remains an environment variable
+        run: |
+          [[ "$SSH_KEY" == *"BEGIN OPENSSH PRIVATE KEY"* ]] || { echo "FAIL: SSH key header missing"; exit 1; }
+          [[ "$SSH_KEY" == *"END OPENSSH PRIVATE KEY-----"* ]] || { echo "FAIL: SSH key footer missing"; exit 1; }
+          [[ "$(printf '%s' "$SSH_KEY" | wc -l | tr -d ' ')" -ge 3 ]] || { echo "FAIL: SSH key newlines lost"; exit 1; }
