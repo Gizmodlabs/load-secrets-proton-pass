@@ -60,7 +60,10 @@ export async function runAction(options: RunActionOptions = {}): Promise<ActionR
 }
 
 /** Run dist/cleanup.js (the post entry) with optional saved state. */
-export async function runCleanup(state: Record<string, string> = {}): Promise<{ exitCode: number; stdout: string }> {
+export async function runCleanup(
+  state: Record<string, string> = {},
+  extraEnv: Record<string, string> = {},
+): Promise<{ exitCode: number; stdout: string }> {
   const mock = installMockPassCli()
   try {
     const env = scrubbedBaseEnv()
@@ -68,6 +71,7 @@ export async function runCleanup(state: Record<string, string> = {}): Promise<{ 
     for (const [key, value] of Object.entries(state)) {
       env[`STATE_${key}`] = value
     }
+    Object.assign(env, extraEnv)
     return await spawnNode(CLEANUP_BUNDLE, env)
   } finally {
     mock.cleanup()

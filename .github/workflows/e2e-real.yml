@@ -7,6 +7,20 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 6 * * 1' # weekly — catches upstream pass-cli release/asset changes
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit SHA or tag to validate'
+        required: false
+        type: string
+      require-pat:
+        description: 'Fail instead of skip when the PAT is unavailable'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      PROTON_PASS_PERSONAL_ACCESS_TOKEN:
+        required: false
 
 jobs:
   e2e:
@@ -21,6 +35,14 @@ jobs:
       HAS_PAT: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Require real-vault PAT
+        if: inputs.require-pat && env.HAS_PAT != 'true'
+        run: |
+          echo "::error::PROTON_PASS_PERSONAL_ACCESS_TOKEN is required for release validation."
+          exit 1
 
       - name: Skipped (no PAT available)
         if: env.HAS_PAT != 'true'
@@ -45,8 +67,8 @@ jobs:
           OUT_EMAIL: ${{ steps.secrets.outputs.E2E_EMAIL }}
         run: |
           [[ -n "$E2E_EMAIL" ]] || { echo "FAIL: E2E_EMAIL env empty"; exit 1; }
-          [[ -n "$OUT_EMAIL" ]] || { echo "FAIL: E2E_EMAIL step output empty"; exit 1; }
-          echo "E2E_EMAIL resolved (masked): $E2E_EMAIL"
+          [[ "$E2E_EMAIL" == "$OUT_EMAIL" ]] || { echo "FAIL: E2E_EMAIL output differs from env"; exit 1; }
+          echo "E2E_EMAIL resolved"
 
       - name: Assert glob expanded (issue #17)
         if: env.HAS_PAT == 'true'
@@ -56,6 +78,8 @@ jobs:
         run: |
           echo "resolved-keys: $RESOLVED_KEYS"
           [[ "$RESOLVED_KEYS" == *"E2E_EMAIL"* ]] || { echo "FAIL: E2E_EMAIL missing from resolved-keys"; exit 1; }
+          [[ "$RESOLVED_KEYS" == *"E2E_ALL_EMAIL"* ]] || { echo "FAIL: E2E_ALL_EMAIL missing from resolved-keys"; exit 1; }
+          [[ "$RESOLVED_KEYS" == *"E2E_ALL_PASSWORD"* ]] || { echo "FAIL: E2E_ALL_PASSWORD missing from resolved-keys"; exit 1; }
           [[ "$RESOLVED_KEYS" == *"E2E_ALL_"* ]] || { echo "FAIL: glob produced no E2E_ALL_* keys"; exit 1; }
 
       # Second invocation: an explicit, different version must trigger a reinstall

@@ -62,6 +62,12 @@ working without changes. `v1.0.0` remains the bash implementation.
   login instead of silently reusing it.
 - **Windows support.** 1.0.0 was bash-only (linux/macos). 1.1.0 also runs on
   `windows-x86_64`.
+- **Release validation gates.** Publishing now validates the immutable tagged
+  commit through the regular test matrix and the required real-vault E2E before
+  packaging, attestation, release creation, or moving the floating `v1` tag.
+- **Session cleanup ownership.** The post step records its target before login,
+  logs out that exact session, and removes only directories created by the
+  action. Caller-provided session directories are preserved.
 
 ### Behavior changes to be aware of
 

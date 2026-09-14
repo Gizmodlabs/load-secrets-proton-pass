@@ -113,3 +113,56 @@ jobs:
           grep -q "mock-injected-value" tests/.output/.env.production || { echo "FAIL: Values not injected at override path"; exit 1; }
           [[ ! -f tests/.output/test.env ]] || { echo "FAIL: Auto-derived path was written despite override"; exit 1; }
           echo "Output-path override verified"
+
+  test-glob-output-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install mock CLI
+        run: node tests/fixtures/install-mock.mjs
+
+      - name: Load glob as step outputs only
+        id: secrets
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+          export-env: "false"
+          mask-values: "false"
+        env:
+          DB: "pass://GithubActions/multi-field-item/*"
+
+      - name: Verify outputs-only mode did not export the glob
+        run: |
+          [[ -z "${DB_HOST:-}" ]] || { echo "FAIL: DB_HOST should not be exported"; exit 1; }
+
+      - name: Verify glob step outputs
+        if: steps.secrets.outputs.DB_HOST == 'db.example.com' && steps.secrets.outputs.DB_PORT == '5432' && steps.secrets.outputs.DB_PASSWORD == 'hunter2'
+        run: echo "Glob step outputs verified"
+
+      - name: Fail if glob step outputs mismatched
+        if: steps.secrets.outputs.DB_HOST != 'db.example.com' || steps.secrets.outputs.DB_PORT != '5432' || steps.secrets.outputs.DB_PASSWORD != 'hunter2'
+        run: |
+          echo "FAIL: glob step outputs mismatched"
+          exit 1
+
+  test-multiline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install mock CLI
+        run: node tests/fixtures/install-mock.mjs
+
+      - name: Load multiline value
+        uses: ./
+        with:
+          personal-access-token: "pst_mock::TOKENKEY"
+        env:
+          SSH_KEY: "pass://GithubActions/ssh-key-item/private-key"
+
+      - name: Verify multiline value remains an environment variable
+        run: |
+          [[ "$SSH_KEY" == *"BEGIN OPENSSH PRIVATE KEY"* ]] || { echo "FAIL: SSH key header missing"; exit 1; }
+          [[ "$SSH_KEY" == *"END OPENSSH PRIVATE KEY-----"* ]] || { echo "FAIL: SSH key footer missing"; exit 1; }
+          [[ "$(printf '%s' "$SSH_KEY" | wc -l | tr -d ' ')" -ge 3 ]] || { echo "FAIL: SSH key newlines lost"; exit 1; }

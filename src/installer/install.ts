@@ -49,7 +49,13 @@ export async function verifySha256(filePath: string, expectedHex: string): Promi
  */
 export function acceptsPreinstalled(versionOutput: string, requested: string): boolean {
   if (requested === '' || requested === 'latest') return true
-  return versionOutput.includes(requested)
+  return parseInstalledVersion(versionOutput) === requested
+}
+
+/** Extract the stable semantic version printed by `pass-cli --version`. */
+function parseInstalledVersion(versionOutput: string): string | null {
+  const match = /(?:^|\s)pass-cli\s+(\d+\.\d+\.\d+)(?:\s|$)/i.exec(versionOutput.trim())
+  return match?.[1] ?? null
 }
 
 /**

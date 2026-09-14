@@ -181,7 +181,45 @@ function sanitizeFields(
   return [...bySuffix.entries()].map(([suffix, rawNames]) => [suffix, rawNames[0] as string])
 }
 
-/** Returns null on malformed JSON; [] when the item has no fields. */
+/**
+ * Field names on an item, in the shape `pass-cli item view --output json`
+ * actually emits:
+ *
+ *   item.content.content       one externally tagged variant per item type,
+ *                              e.g. `{ Login: { email, username, urls, ... } }`.
+ *                              Note and Alias are unit structs and serialize
+ *                              as a bare `null`.
+ *   item.content.extra_fields  custom fields, `{ name, content: { <Kind>: value } }`
+ *                              where Kind is Text, Hidden, Totp or Timestamp.
+ *                              Timestamp alone carries a number.
+ *
+ * Inside a variant, an array is one of three things, told apart by its element
+ * shape rather than by its key, since the keys differ per item type. A list of
+ * strings (Login.urls) is itself one addressable field registered under the
+ * array's own key, joined with ", ". A list of `{ name, content }` is custom
+ * fields registered under their plain names, which is how Identity carries
+ * extra_personal_details and its three siblings. A list of
+ * `{ section_name, section_fields }` is sections, registered as
+ * `SectionName.fieldname`, which covers SshKey, Wifi and Custom `sections` plus
+ * Identity `extra_sections`. Anything else, notably Login.passkeys, is skipped.
+ *
+ * Section fields are emitted qualified even though a bare name usually
+ * resolves, because the unqualified lookup returns the first match across all
+ * sections: two sections sharing a field name would otherwise silently collapse
+ * onto one value.
+ *
+ * Every name returned here is resolved with a second
+ * `item view -- pass://vault/item/<name>` call, and one unaddressable name
+ * fails the whole glob, so only addressable names may be returned. pass-cli
+ * registers a scalar only when it is non-empty, so empty strings and empty
+ * arrays are dropped. A custom field is registered once declared and resolves
+ * even when its value is empty, so those are always kept. `title` and `note`
+ * resolve as well but are item metadata rather than secrets, so a glob leaves
+ * them out.
+ *
+ * Returns null when the envelope is unrecognized, so a pass-cli schema change
+ * surfaces as a loud error rather than an item that silently has no fields.
+ */
 function parseFieldNames(itemJson: string): string[] | null {
   let parsed: unknown
   try {
@@ -189,13 +227,53 @@ function parseFieldNames(itemJson: string): string[] | null {
   } catch {
     return null
   }
-  const fields = (parsed as { fields?: unknown })?.fields
-  if (fields === undefined || fields === null) return []
-  if (!Array.isArray(fields)) return null
+  const content = (parsed as { item?: { content?: unknown } })?.item?.content
+  if (typeof content !== 'object' || content === null) return null
+  const { content: builtins, extra_fields: extraFields } = content as {
+    content?: unknown
+    extra_fields?: unknown
+  }
+
   const names: string[] = []
-  for (const field of fields) {
-    const name = (field as { name?: unknown })?.name
-    if (typeof name === 'string' && name.length > 0) names.push(name)
+  if (typeof builtins === 'object' && builtins !== null) {
+    for (const variant of Object.values(builtins as Record<string, unknown>)) {
+      if (typeof variant !== 'object' || variant === null) continue
+      for (const [key, value] of Object.entries(variant as Record<string, unknown>)) {
+        if (typeof value === 'string' && value !== '') names.push(key)
+        else if (Array.isArray(value)) names.push(...arrayFieldNames(key, value))
+      }
+    }
+  }
+  names.push(...customFieldNames(extraFields))
+  return names
+}
+
+function arrayFieldNames(key: string, entries: unknown[]): string[] {
+  if (entries.length === 0) return []
+  if (entries.every(entry => typeof entry === 'string')) return [key]
+  const names: string[] = []
+  for (const entry of entries) {
+    const section = (entry as { section_name?: unknown; section_fields?: unknown })?.section_fields
+    if (Array.isArray(section)) {
+      const sectionName = (entry as { section_name?: unknown }).section_name
+      const prefix = typeof sectionName === 'string' && sectionName !== '' ? `${sectionName}.` : ''
+      names.push(...customFieldNames(section).map(name => `${prefix}${name}`))
+    } else {
+      names.push(...customFieldNames([entry]))
+    }
+  }
+  return names
+}
+
+/** Entries shaped `{ name, content: { <Kind>: value } }`; anything else is not a field. */
+function customFieldNames(entries: unknown): string[] {
+  if (!Array.isArray(entries)) return []
+  const names: string[] = []
+  for (const entry of entries) {
+    const { name, content } = (entry ?? {}) as { name?: unknown; content?: unknown }
+    if (typeof name !== 'string' || name === '') continue
+    if (typeof content !== 'object' || content === null || Array.isArray(content)) continue
+    names.push(name)
   }
   return names
 }

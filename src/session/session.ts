@@ -14,6 +14,8 @@ export const PAT_FINGERPRINT_FILE = '.pat-fingerprint'
 
 /** State key used to hand the session dir to the post-job cleanup entry. */
 export const SESSION_DIR_STATE_KEY = 'session-dir'
+/** Whether this action invocation created the session directory. */
+export const SESSION_DIR_OWNED_STATE_KEY = 'session-dir-owned'
 
 const OWNER_ONLY_DIR = 0o700
 const OWNER_ONLY_FILE = 0o600
@@ -30,7 +32,12 @@ const OWNER_ONLY_FILE = 0o600
  * Returns the session directory (also saved to action state for cleanup).
  */
 export async function establishSession(pat: string, runner: CliRunner = runPassCli): Promise<string> {
-  const sessionDir = prepareSessionDir()
+  const session = prepareSessionDir()
+  const { sessionDir } = session
+  // Save cleanup state before authentication. A successful login followed by
+  // a failed probe must still be able to clean up the directory it created.
+  core.saveState(SESSION_DIR_STATE_KEY, sessionDir)
+  core.saveState(SESSION_DIR_OWNED_STATE_KEY, String(session.owned))
   exportSessionEnv(sessionDir)
 
   const fingerprint = patFingerprint(pat)
@@ -38,7 +45,6 @@ export async function establishSession(pat: string, runner: CliRunner = runPassC
 
   if (probe.exitCode === 0 && recordedFingerprint(sessionDir) === fingerprint) {
     core.info('pass-cli session already active for this token, skipping login')
-    core.saveState(SESSION_DIR_STATE_KEY, sessionDir)
     return sessionDir
   }
 
@@ -67,7 +73,6 @@ export async function establishSession(pat: string, runner: CliRunner = runPassC
 
   writeFileSync(join(sessionDir, PAT_FINGERPRINT_FILE), fingerprint, { mode: OWNER_ONLY_FILE })
   core.info('Authenticated with Proton Pass')
-  core.saveState(SESSION_DIR_STATE_KEY, sessionDir)
   return sessionDir
 }
 
@@ -75,16 +80,31 @@ export function patFingerprint(pat: string): string {
   return createHash('sha256').update(pat).digest('hex')
 }
 
-function prepareSessionDir(): string {
+interface PreparedSessionDir {
+  readonly sessionDir: string
+  readonly owned: boolean
+}
+
+function prepareSessionDir(): PreparedSessionDir {
   const configured = process.env.PROTON_PASS_SESSION_DIR
   if (configured) {
     rejectSymlink(configured)
+    const existed = directoryExists(configured)
     mkdirSync(configured, { recursive: true, mode: OWNER_ONLY_DIR })
     chmodSync(configured, OWNER_ONLY_DIR)
-    return configured
+    return { sessionDir: configured, owned: !existed }
   }
   const base = process.env.RUNNER_TEMP || tmpdir()
-  return mkdtempSync(join(base, 'proton-pass-session-'))
+  return { sessionDir: mkdtempSync(join(base, 'proton-pass-session-')), owned: true }
+}
+
+function directoryExists(dir: string): boolean {
+  try {
+    lstatSync(dir)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function rejectSymlink(dir: string): void {

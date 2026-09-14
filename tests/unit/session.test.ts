@@ -4,7 +4,12 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { establishSession, PAT_FINGERPRINT_FILE } from '../../src/session/session.ts'
+import {
+  establishSession,
+  PAT_FINGERPRINT_FILE,
+  SESSION_DIR_OWNED_STATE_KEY,
+  SESSION_DIR_STATE_KEY,
+} from '../../src/session/session.ts'
 import type { CliResult, CliRunner } from '../../src/pass-cli.ts'
 
 const PAT = 'pst_unit-test-token::KEY'
@@ -112,6 +117,9 @@ test('fails with an actionable message (never the PAT) when login fails', async 
 test('fails when login succeeds but the session probe still fails', async () => {
   const { runner } = fakeRunner({ info: [1, 1], login: 0 })
   await assert.rejects(establishSession(PAT, runner), /authentication failed/i)
+  const state = readFileSync(process.env.GITHUB_STATE as string, 'utf8')
+  assert.match(state, new RegExp(SESSION_DIR_STATE_KEY))
+  assert.match(state, new RegExp(SESSION_DIR_OWNED_STATE_KEY))
 })
 
 test('rejects a symlinked PROTON_PASS_SESSION_DIR', async () => {

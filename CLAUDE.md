@@ -15,12 +15,14 @@ npm run lint          # oxlint (typescript-eslint type-aware rules don't support
 npm run build         # esbuild → dist/index.js + dist/cleanup.js (committed artifacts)
 npm test              # node:test — unit + integration (integration runs the BUILT dist/)
 npm run build:check   # typecheck + build + test, the pre-push gate
+npm run test:workflow # mock action workflow through pinned agent-ci
+npm run verify        # build:check + lint + local workflow simulation
 
 # Run one test file
 node --test tests/unit/resolver.test.ts
 
 # Full workflow simulation with the official Actions runner
-npx @redwoodjs/agent-ci run --workflow tests/test-workflow.yml
+npm run test:workflow
 ```
 
 Integration tests execute `dist/index.js`, so **run `npm run build` before `npm test`** after changing `src/`. CI fails if `dist/` is stale relative to `src/` (dist-freshness job).
@@ -32,7 +34,7 @@ Domain model first, then orchestration:
 
 - `src/domain/` — `PassUri` (parse + classify: literal / field-glob / invalid wildcards; greedy vault parity with the old bash regex), `InstallerSpec`, `ResolutionReport` (failures carry name + URI + error, never values).
 - `src/installer/` — platform detection (5 targets incl. `windows-x86_64`); **GitHub Releases** as the only source: `release.ts` builds asset URLs, resolves `latest` via the `/releases/latest` 302 `Location` (no REST API → no rate limit), and takes the expected SHA-256 from the caller's `hash` input or the asset's `.sha256` sidecar; `install.ts` downloads, **fail-closed verifies** (mismatch deletes the file; no expected hash ⇒ abort), caches, `addPath`. `DEFAULT_PASS_CLI_VERSION` (pinned) applies when the input is empty. Pre-installed policy: unset/`latest` accept any `pass-cli` on PATH (this is how tests inject the mock); explicit versions must match `--version` output or are reinstalled. Proton's `versions.json` is NOT used — it is latest-only.
-- `src/session/` — session dir setup (symlink-rejected, 0700) and login **bound to the PAT identity**: a SHA-256 fingerprint of the PAT is stored in the session dir; a valid session with a different/unknown fingerprint is logged out and replaced. Session dir is saved to action state for the post step.
+- `src/session/` — session dir setup (symlink-rejected, 0700) and login **bound to the PAT identity**: a SHA-256 fingerprint of the PAT is stored in the session dir; a valid session with a different/unknown fingerprint is logged out and replaced. Session ownership is saved before login so the post step cleans only the exact directory this invocation created.
 - `src/resolver/` — env scan (full 3-segment URIs only; others silently ignored), literal + glob resolution, suffix sanitization + collision detection.
 - `src/export/` — masks (whole value + per line) then writes via `core.setOutput`/`core.exportVariable` **only** — never raw appends to `$GITHUB_OUTPUT`/`$GITHUB_ENV` (heredoc protocol keeps multiline secrets intact).
 - `src/template/` — `pass-cli inject` template rendering; output path = explicit input > strip `.template`/`.tpl` > `+.resolved`. Template failures are hard errors regardless of `strict`.

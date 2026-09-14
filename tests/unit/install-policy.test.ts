@@ -17,6 +17,13 @@ test('an explicit version must appear in --version output', () => {
   assert.equal(acceptsPreinstalled(MOCK_VERSION_OUTPUT, '2.3.3'), false)
 })
 
+test('an explicit version requires an exact stable version match', () => {
+  assert.equal(acceptsPreinstalled('pass-cli 2.3.3\n', '2.3.3'), true)
+  assert.equal(acceptsPreinstalled('pass-cli 2.3.30\n', '2.3.3'), false)
+  assert.equal(acceptsPreinstalled('pass-cli 2.3.3-beta.1\n', '2.3.3'), false)
+  assert.equal(acceptsPreinstalled('unexpected version output\n', '2.3.3'), false)
+})
+
 test('the default is a pinned MAJOR.MINOR.PATCH, not latest', () => {
   assert.match(DEFAULT_PASS_CLI_VERSION, /^\d+\.\d+\.\d+$/)
 })

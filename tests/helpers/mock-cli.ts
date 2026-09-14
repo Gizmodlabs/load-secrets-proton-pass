@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,8 +17,12 @@ export interface MockCli {
  */
 export function installMockPassCli(): MockCli {
   const binDir = mkdtempSync(join(tmpdir(), 'mock-pass-cli-'))
-  copyFileSync(join(FIXTURES_DIR, 'mock-pass-cli.mjs'), join(binDir, 'mock-pass-cli.mjs'))
-  copyFileSync(join(FIXTURES_DIR, 'pem-fixture.mjs'), join(binDir, 'pem-fixture.mjs'))
+  // Copy every fixture module, not a hand-listed subset: the mock imports its
+  // siblings, and a missing one makes the shim fail to start, which surfaces
+  // as every integration test exiting non-zero rather than as a clear error.
+  for (const entry of readdirSync(FIXTURES_DIR)) {
+    if (entry.endsWith('.mjs')) copyFileSync(join(FIXTURES_DIR, entry), join(binDir, entry))
+  }
 
   if (process.platform === 'win32') {
     writeFileSync(

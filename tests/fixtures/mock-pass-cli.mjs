@@ -5,6 +5,7 @@
 // Understands the `--` argument separator the action now always passes.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { PEM_KEY } from './pem-fixture.mjs'
+import { loginItem, customItem } from './item-json.mjs'
 
 const argv = process.argv.slice(2)
 const command = argv[0]
@@ -19,33 +20,19 @@ function fail(message) {
 }
 
 const ITEM_JSON = {
-  'GithubActions/multi-field-item': {
-    title: 'multi-field-item',
-    fields: [
-      { name: 'host', value: 'db.example.com' },
-      { name: 'port', value: '5432' },
-      { name: 'password', value: 'hunter2' },
-    ],
-  },
-  'GithubActions/empty-item': { title: 'empty-item', fields: [] },
-  'GithubActions/collision-item': {
-    title: 'collision-item',
-    fields: [
-      { name: 'api-key', value: 'a' },
-      { name: 'api_key', value: 'b' },
-    ],
-  },
-  'GithubActions/sanitize-item': {
-    title: 'sanitize-item',
-    fields: [
-      { name: 'API Key', value: 'sanitize-apikey-value' },
-      { name: 'database-name', value: 'sanitize-dbname-value' },
-    ],
-  },
-  'GithubActions/bad-suffix-item': {
-    title: 'bad-suffix-item',
-    fields: [{ name: '---', value: 'unreachable' }],
-  },
+  // Mirrors the real vault item the e2e reads: built-in Login scalars, no custom fields.
+  'GithubActions/load-secrets-proton-pass-test': loginItem('load-secrets-proton-pass-test', {
+    builtins: { email: 'mock@example.com', username: 'mockuser', password: 'mock-real-password' },
+  }),
+  'GithubActions/multi-field-item': loginItem('multi-field-item', {
+    custom: ['host', 'port', 'password'],
+  }),
+  'GithubActions/empty-item': loginItem('empty-item'),
+  'GithubActions/collision-item': loginItem('collision-item', { custom: ['api-key', 'api_key'] }),
+  'GithubActions/sanitize-item': loginItem('sanitize-item', { custom: ['API Key', 'database-name'] }),
+  'GithubActions/bad-suffix-item': loginItem('bad-suffix-item', { custom: ['---'] }),
+  // Custom items carry fields under sections rather than extra_fields.
+  'GithubActions/sectioned-item': customItem('sectioned-item', ['section-host', 'section-token']),
 }
 
 const FIELD_VALUES = {
@@ -77,7 +64,7 @@ function itemView(args) {
 
   if (output === 'json') {
     const item = ITEM_JSON[path]
-    out(`${JSON.stringify(item ?? { title: 'unknown', fields: [] })}\n`)
+    out(`${JSON.stringify(item ?? loginItem('unknown'))}\n`)
     process.exit(0)
   }
 
@@ -117,6 +104,9 @@ switch (command) {
     process.exit(0)
     break
   case 'logout':
+    if (process.env.MOCK_PASS_CLI_LOGOUT_SESSION_FILE) {
+      writeFileSync(process.env.MOCK_PASS_CLI_LOGOUT_SESSION_FILE, process.env.PROTON_PASS_SESSION_DIR ?? '')
+    }
     out('Logged out (mock)\n')
     process.exit(0)
     break

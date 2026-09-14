@@ -7,74 +7,125 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to (re)release (e.g. v1.0.1)'
+        description: 'Existing tag to (re)release (e.g. v1.1.0)'
         required: true
+        type: string
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  release:
+  prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.name }}
+      major: ${{ steps.tag.outputs.major }}
+      sha: ${{ steps.tag.outputs.sha }}
     steps:
-      - name: Resolve tag
-        id: tag
-        run: |
-          ref="${{ github.event.inputs.tag || github.ref_name }}"
-          if [[ ! "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag '$ref' must match vMAJOR.MINOR.PATCH" >&2
-            exit 1
-          fi
-          echo "name=$ref"             >> "$GITHUB_OUTPUT"
-          echo "major=${ref%%.*}"      >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v7
         with:
-          ref: ${{ steps.tag.outputs.name }}
           fetch-depth: 0
+      - name: Resolve immutable release commit
+        id: tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '$RELEASE_TAG' must match vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          sha="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
+          if [[ -z "$sha" ]]; then
+            echo "Tag '$RELEASE_TAG' does not exist" >&2
+            exit 1
+          fi
+          echo "name=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "major=${RELEASE_TAG%%.*}" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+  validate-test:
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  validate-e2e:
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-real.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      require-pat: true
+    secrets:
+      PROTON_PASS_PERSONAL_ACCESS_TOKEN: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+
+  release:
+    needs: [prepare, validate-test, validate-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify tag still targets the validated commit
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          [[ "$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")" == "$RELEASE_SHA" ]] || {
+            echo "::error::Release tag changed after validation."
+            exit 1
+          }
+      - name: Verify committed bundles are fresh
+        run: |
+          npm run build
+          git diff --exit-code -- dist/
       - name: Package action source
         id: pack
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          tarball="load-secrets-proton-pass-${{ steps.tag.outputs.name }}.tar.gz"
-          tar --exclude='.git' \
-              --exclude='.github' \
-              --exclude='tests' \
-              --exclude='examples' \
-              --exclude='docs' \
-              --exclude='.env.agent-ci' \
-              -czf "$tarball" \
-              action.yml dist/ README.md LICENSE CLAUDE.md CHANGELOG.md
-          sha256sum "$tarball" | tee "${tarball}.sha256"
-          echo "tarball=$tarball"       >> "$GITHUB_OUTPUT"
-          echo "checksum=${tarball}.sha256" >> "$GITHUB_OUTPUT"
-
+          npm run release:package -- --tag "$RELEASE_TAG" --out-dir .release
+          echo "tarball=.release/load-secrets-proton-pass-${RELEASE_TAG}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "checksum=.release/load-secrets-proton-pass-${RELEASE_TAG}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
       - name: Attest build provenance (sigstore)
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ steps.pack.outputs.tarball }}
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          gh release create "${{ steps.tag.outputs.name }}" \
+          gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "${{ steps.tag.outputs.name }}" \
+            --title "$RELEASE_TAG" \
             --generate-notes \
             --verify-tag \
             "${{ steps.pack.outputs.tarball }}" \
             "${{ steps.pack.outputs.checksum }}"
-
       - name: Move floating major tag
         env:
           GH_TOKEN: ${{ github.token }}
+          MAJOR: ${{ needs.prepare.outputs.major }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          major="${{ steps.tag.outputs.major }}"
-          target="${{ steps.tag.outputs.name }}"
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$major" "$target"
-          git push origin "$major" --force
+          git tag -f "$MAJOR" "$RELEASE_TAG"
+          git push origin "$MAJOR" --force

@@ -6,10 +6,11 @@
 // verify-hash); fix #3 (PAT-bound sessions) by unit tests (session).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, existsSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runAction, runCleanup } from '../helpers/run-action.ts'
+import { PAT_FINGERPRINT_FILE, SESSION_DIR_OWNED_STATE_KEY } from '../../src/session/session.ts'
 // @ts-expect-error importing an untyped .mjs fixture shared with the mock CLI
 import { PEM_KEY } from '../fixtures/pem-fixture.mjs'
 
@@ -52,7 +53,7 @@ test('export-env=false still publishes resolved-keys and per-var outputs', async
 // Bash test 4 equivalent + fix #4.
 test('fix #4: post cleanup logs out, removes the session dir, and exits 0', async () => {
   const sessionDir = mkdtempSync(join(tmpdir(), 'cleanup-session-'))
-  const result = await runCleanup({ 'session-dir': sessionDir })
+  const result = await runCleanup({ 'session-dir': sessionDir, [SESSION_DIR_OWNED_STATE_KEY]: 'true' })
   assert.equal(result.exitCode, 0, 'cleanup completed')
   assert.ok(!existsSync(sessionDir), 'session dir removed')
   assert.ok(result.stdout.includes('Proton Pass session cleaned up'))
@@ -62,6 +63,33 @@ test('fix #4: post cleanup logs out, removes the session dir, and exits 0', asyn
 test('fix #4: cleanup never fails the job even without pass-cli state', async () => {
   const result = await runCleanup()
   assert.equal(result.exitCode, 0)
+  assert.match(result.stdout, /skipping cleanup/)
+})
+
+test('cleanup targets its saved session and preserves a caller-owned directory', async () => {
+  const callerDir = mkdtempSync(join(tmpdir(), 'cleanup-caller-'))
+  const ambientDir = mkdtempSync(join(tmpdir(), 'cleanup-ambient-'))
+  const capture = join(callerDir, 'logout-session')
+  const sentinel = join(callerDir, 'unrelated-file')
+  writeFileSync(join(callerDir, PAT_FINGERPRINT_FILE), 'fingerprint')
+  writeFileSync(sentinel, 'keep')
+  try {
+    const result = await runCleanup(
+      { 'session-dir': callerDir, [SESSION_DIR_OWNED_STATE_KEY]: 'false' },
+      {
+        PROTON_PASS_SESSION_DIR: ambientDir,
+        MOCK_PASS_CLI_LOGOUT_SESSION_FILE: capture,
+      },
+    )
+    assert.equal(result.exitCode, 0)
+    assert.equal(readFileSync(capture, 'utf8'), callerDir)
+    assert.ok(existsSync(callerDir), 'caller-owned directory survives')
+    assert.ok(existsSync(sentinel), 'unrelated caller file survives')
+    assert.ok(!existsSync(join(callerDir, PAT_FINGERPRINT_FILE)), 'action fingerprint is removed')
+  } finally {
+    rmSync(callerDir, { recursive: true, force: true })
+    rmSync(ambientDir, { recursive: true, force: true })
+  }
 })
 
 test('security: PAT is masked the instant it is read', async () => {

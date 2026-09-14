@@ -1,4 +1,8 @@
-# Upstream Parity + Installer Fix — Handover Plan
+# Superseded: Upstream Parity + Installer Fix — Handover Plan
+
+> Superseded by [PR #21 implementation handover](2026-09-05-pr21-verification-handover.md).
+> Do not use this document's v2 release instructions; the rewrite ships as v1.1.0
+> and preserves the existing `@v1` consumer interface.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

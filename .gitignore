@@ -1,6 +1,7 @@
 .secrets
 .env
 .env.agent-ci
+.env.local-ci
 *.local
 .DS_Store
 

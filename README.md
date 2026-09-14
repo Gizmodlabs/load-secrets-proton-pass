@@ -272,28 +272,30 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # oxlint (typescript-eslint's type-aware rules don't support the TS7 checker yet)
 npm run build       # esbuild → dist/index.js + dist/cleanup.js
 npm test            # node:test — unit + integration against the mock pass-cli (no Proton account needed)
+npm run test:workflow # agent-ci mock workflow using the official Actions runner
+npm run verify      # build check + lint + agent-ci workflow
 
 # Full workflow simulation using the official GitHub Actions runner
-npx @redwoodjs/agent-ci run --workflow tests/test-workflow.yml
+npm run test:workflow
 ```
 
 `dist/` is a committed build artifact — rebuild and commit it with any `src/` change (CI fails on stale `dist/`).
 
-[`agent-ci`](https://agent-ci.dev) wraps the official `actions/runner` binary, so what passes locally is what runs in CI.
+[`@redwoodjs/agent-ci`](https://agent-ci.dev) is pinned at 0.18.1 and wraps the official `actions/runner` binary. It now forwards to Local CI, while preserving the `agent-ci` command used by this repository.
 
 ### Smoke test against a real vault
 
 `tests/test-real.yml` (gitignored) runs the action end-to-end against your own Proton Pass account. Set up:
 
 ```bash
-# 1. Put your PAT in .env.agent-ci (also gitignored) — agent-ci picks up
+# 1. Put your PAT in .env.local-ci (also gitignored) — agent-ci picks up
 #    secrets from this file automatically.
-echo 'PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_xxxx::TOKENKEY' > .env.agent-ci
+echo 'PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_xxxx::TOKENKEY' > .env.local-ci
 
 # 2. Edit the pass:// URIs in tests/test-real.yml to point at items you own.
 
 # 3. Run it.
-npx @redwoodjs/agent-ci run --workflow tests/test-real.yml
+npm exec agent-ci run --workflow tests/test-real.yml
 ```
 
 The workflow references the PAT as `${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}`, so the token never lives in the YAML.

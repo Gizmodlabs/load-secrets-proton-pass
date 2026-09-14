@@ -19824,6 +19824,7 @@ __export(cleanup_exports, {
 });
 module.exports = __toCommonJS(cleanup_exports);
 var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
 var core2 = __toESM(require_core(), 1);
 
 // src/pass-cli.ts
@@ -19846,17 +19847,28 @@ var runPassCli = async (args, extraEnv) => {
 
 // src/session/session.ts
 var core = __toESM(require_core(), 1);
+var PAT_FINGERPRINT_FILE = ".pat-fingerprint";
 var SESSION_DIR_STATE_KEY = "session-dir";
+var SESSION_DIR_OWNED_STATE_KEY = "session-dir-owned";
 
 // src/cleanup.ts
 async function cleanup() {
-  await logout();
-  await removeSessionDir();
+  const sessionDir = core2.getState(SESSION_DIR_STATE_KEY);
+  if (!sessionDir) {
+    core2.info("No Proton Pass session state was saved; skipping cleanup");
+    return;
+  }
+  const owned = core2.getState(SESSION_DIR_OWNED_STATE_KEY) === "true";
+  await logout(sessionDir);
+  await removeSessionDir(sessionDir, owned);
   core2.info("Proton Pass session cleaned up");
 }
-async function logout() {
+async function logout(sessionDir) {
   try {
-    const result = await runPassCli(["logout"]);
+    const result = await runPassCli(["logout"], {
+      PROTON_PASS_SESSION_DIR: sessionDir,
+      PROTON_PASS_KEY_PROVIDER: "fs"
+    });
     if (result.exitCode !== 0) {
       core2.warning(`pass-cli logout exited with code ${result.exitCode} (continuing)`);
     }
@@ -19864,13 +19876,15 @@ async function logout() {
     core2.warning(`pass-cli logout failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
-async function removeSessionDir() {
-  const sessionDir = core2.getState(SESSION_DIR_STATE_KEY);
-  if (!sessionDir) return;
+async function removeSessionDir(sessionDir, owned) {
   try {
-    await import_node_fs.promises.rm(sessionDir, { recursive: true, force: true });
+    if (owned) {
+      await import_node_fs.promises.rm(sessionDir, { recursive: true, force: true });
+      return;
+    }
+    await import_node_fs.promises.rm((0, import_node_path.join)(sessionDir, PAT_FINGERPRINT_FILE), { force: true });
   } catch (err) {
-    core2.warning(`Could not remove session dir: ${err instanceof Error ? err.message : String(err)}`);
+    core2.warning(`Could not remove Proton Pass session state: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 void cleanup();

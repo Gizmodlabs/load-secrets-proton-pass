@@ -21914,7 +21914,11 @@ async function verifySha256(filePath, expectedHex) {
 }
 function acceptsPreinstalled(versionOutput, requested) {
   if (requested === "" || requested === "latest") return true;
-  return versionOutput.includes(requested);
+  return parseInstalledVersion(versionOutput) === requested;
+}
+function parseInstalledVersion(versionOutput) {
+  const match = /(?:^|\s)pass-cli\s+(\d+\.\d+\.\d+)(?:\s|$)/i.exec(versionOutput.trim());
+  return match?.[1] ?? null;
 }
 async function ensurePassCli(options) {
   const preinstalled = await installedVersion();
@@ -22018,16 +22022,19 @@ function stderrDetail(result) {
 // src/session/session.ts
 var PAT_FINGERPRINT_FILE = ".pat-fingerprint";
 var SESSION_DIR_STATE_KEY = "session-dir";
+var SESSION_DIR_OWNED_STATE_KEY = "session-dir-owned";
 var OWNER_ONLY_DIR = 448;
 var OWNER_ONLY_FILE = 384;
 async function establishSession(pat, runner = runPassCli) {
-  const sessionDir = prepareSessionDir();
+  const session = prepareSessionDir();
+  const { sessionDir } = session;
+  core3.saveState(SESSION_DIR_STATE_KEY, sessionDir);
+  core3.saveState(SESSION_DIR_OWNED_STATE_KEY, String(session.owned));
   exportSessionEnv(sessionDir);
   const fingerprint = patFingerprint(pat);
   const probe = await runner(["info"]);
   if (probe.exitCode === 0 && recordedFingerprint(sessionDir) === fingerprint) {
     core3.info("pass-cli session already active for this token, skipping login");
-    core3.saveState(SESSION_DIR_STATE_KEY, sessionDir);
     return sessionDir;
   }
   if (probe.exitCode === 0) {
@@ -22050,7 +22057,6 @@ async function establishSession(pat, runner = runPassCli) {
   }
   (0, import_node_fs2.writeFileSync)((0, import_node_path.join)(sessionDir, PAT_FINGERPRINT_FILE), fingerprint, { mode: OWNER_ONLY_FILE });
   core3.info("Authenticated with Proton Pass");
-  core3.saveState(SESSION_DIR_STATE_KEY, sessionDir);
   return sessionDir;
 }
 function patFingerprint(pat) {
@@ -22060,12 +22066,21 @@ function prepareSessionDir() {
   const configured = process.env.PROTON_PASS_SESSION_DIR;
   if (configured) {
     rejectSymlink(configured);
+    const existed = directoryExists(configured);
     (0, import_node_fs2.mkdirSync)(configured, { recursive: true, mode: OWNER_ONLY_DIR });
     (0, import_node_fs2.chmodSync)(configured, OWNER_ONLY_DIR);
-    return configured;
+    return { sessionDir: configured, owned: !existed };
   }
   const base = process.env.RUNNER_TEMP || (0, import_node_os.tmpdir)();
-  return (0, import_node_fs2.mkdtempSync)((0, import_node_path.join)(base, "proton-pass-session-"));
+  return { sessionDir: (0, import_node_fs2.mkdtempSync)((0, import_node_path.join)(base, "proton-pass-session-")), owned: true };
+}
+function directoryExists(dir) {
+  try {
+    (0, import_node_fs2.lstatSync)(dir);
+    return true;
+  } catch {
+    return false;
+  }
 }
 function rejectSymlink(dir) {
   let stat;
@@ -22284,13 +22299,46 @@ function parseFieldNames(itemJson) {
   } catch {
     return null;
   }
-  const fields = parsed?.fields;
-  if (fields === void 0 || fields === null) return [];
-  if (!Array.isArray(fields)) return null;
+  const content = parsed?.item?.content;
+  if (typeof content !== "object" || content === null) return null;
+  const { content: builtins, extra_fields: extraFields } = content;
   const names = [];
-  for (const field of fields) {
-    const name = field?.name;
-    if (typeof name === "string" && name.length > 0) names.push(name);
+  if (typeof builtins === "object" && builtins !== null) {
+    for (const variant of Object.values(builtins)) {
+      if (typeof variant !== "object" || variant === null) continue;
+      for (const [key, value] of Object.entries(variant)) {
+        if (typeof value === "string" && value !== "") names.push(key);
+        else if (Array.isArray(value)) names.push(...arrayFieldNames(key, value));
+      }
+    }
+  }
+  names.push(...customFieldNames(extraFields));
+  return names;
+}
+function arrayFieldNames(key, entries) {
+  if (entries.length === 0) return [];
+  if (entries.every((entry) => typeof entry === "string")) return [key];
+  const names = [];
+  for (const entry of entries) {
+    const section = entry?.section_fields;
+    if (Array.isArray(section)) {
+      const sectionName = entry.section_name;
+      const prefix = typeof sectionName === "string" && sectionName !== "" ? `${sectionName}.` : "";
+      names.push(...customFieldNames(section).map((name) => `${prefix}${name}`));
+    } else {
+      names.push(...customFieldNames([entry]));
+    }
+  }
+  return names;
+}
+function customFieldNames(entries) {
+  if (!Array.isArray(entries)) return [];
+  const names = [];
+  for (const entry of entries) {
+    const { name, content } = entry ?? {};
+    if (typeof name !== "string" || name === "") continue;
+    if (typeof content !== "object" || content === null || Array.isArray(content)) continue;
+    names.push(name);
   }
   return names;
 }
