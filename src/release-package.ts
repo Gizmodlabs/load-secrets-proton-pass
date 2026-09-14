@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { execFile } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
@@ -35,7 +35,7 @@ export async function packageRelease(options: PackageReleaseOptions): Promise<Pa
   await execFileAsync('tar', ['-czf', tarball, ...PACKAGE_PATHS], { cwd: projectRoot })
 
   const digest = createHash('sha256').update(await fs.readFile(tarball)).digest('hex')
-  await fs.writeFile(checksum, `${digest}  ${tarball.split('/').at(-1)}\n`)
+  await fs.writeFile(checksum, `${digest}  ${basename(tarball)}\n`)
   return { tarball, checksum }
 }
 

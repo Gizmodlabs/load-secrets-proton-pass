@@ -20,10 +20,16 @@ test('release package contains only the action distribution and verifies its che
     const checksum = await fs.readFile(result.checksum, 'utf8')
     assert.match(checksum, new RegExp(createHash('sha256').update(archive).digest('hex')))
 
+    // bsdtar on Windows and GNU tar elsewhere differ in line endings, in whether
+    // entries carry a leading ./, and in directory trailing slashes. The assertion
+    // is about archive membership, so normalize before comparing.
     const { stdout } = await execFileAsync('tar', ['-tzf', result.tarball])
-    const files = stdout.trim().split('\n')
+    const files = stdout
+      .split(/\r?\n/)
+      .map(line => line.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, ''))
+      .filter(line => line !== '')
     for (const required of ['action.yml', 'README.md', 'LICENSE', 'CLAUDE.md', 'CHANGELOG.md', 'dist/index.js', 'dist/cleanup.js']) {
-      assert.ok(files.includes(required), `${required} is packaged`)
+      assert.ok(files.includes(required), `${required} is packaged; archive holds ${JSON.stringify(files)}`)
     }
     assert.ok(files.every(file => !file.startsWith('tests/') && !file.startsWith('.github/') && !file.startsWith('.git/')))
   } finally {
