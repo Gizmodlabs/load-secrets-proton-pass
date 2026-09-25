@@ -165,6 +165,7 @@ test('T16: strict mode fails on missing item; good secrets still exported; no va
   )
   assert.ok('GOOD_SECRET' in result.env, 'good secret still exported')
   assert.ok(!('BOGUS' in result.env), 'unresolved var not written to GITHUB_ENV')
+  assert.equal(result.output['resolved-keys'], 'GOOD_SECRET', 'resolved-keys is written before the strict failure')
   const errorLines = result.stdout.split('\n').filter(line => line.includes('::error::'))
   assert.ok(
     errorLines.every(line => !line.includes('mock-real-password')),
