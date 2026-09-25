@@ -77,6 +77,11 @@ working without changes. `v1.0.0` remains the bash implementation.
   dropped and reported, which fails the step under `strict` (a warning
   otherwise). 1.0.0 exported both, so environment order picked the value and
   `resolved-keys` listed the name twice. Names compare case-insensitively.
+- **Unrecognized boolean inputs keep their default.** `mask-values`, `strict`
+  and `export-env` take `true` or `false` in any case. Any other value logs a
+  warning and uses the documented default (`true` for all three). 1.0.0
+  treated anything but `true` as false, so a typo such as `mask-values: yes`
+  silently turned masking off.
 
 - **Default `pass-cli` is 2.3.3 (was 2.1.0); minimum 2.1.2.** Releases before
   2.1.2 are not published on GitHub Releases and cannot be verified, so an

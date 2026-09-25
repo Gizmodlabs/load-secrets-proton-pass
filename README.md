@@ -222,6 +222,8 @@ With an explicit output path:
 | `output-path` | No | `''` | Where to write the rendered template. Defaults to stripping `.template`/`.tpl`, else `<input>.resolved`. |
 | `export-env` | No | `true` | Export resolved secrets as env vars for subsequent steps. Set `false` to consume them only as step outputs. (Upstream `protonpass/load-secret-action` defaults this to `false`; this action defaults to `true` for compatibility with its own earlier releases.) |
 
+Boolean inputs take `true` or `false` in any case. Any other value logs a warning and keeps the default, so a typo can never switch masking or strict mode off.
+
 ## Outputs
 
 | Output | Description |

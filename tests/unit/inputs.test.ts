@@ -66,3 +66,47 @@ test('boolean defaults are unchanged: mask-values, strict, export-env all defaul
   assert.equal(inputs.strict, true)
   assert.equal(inputs.exportEnv, true)
 })
+
+/** Capture the workflow commands (::warning:: etc.) @actions/core writes to stdout. */
+function captureStdout(run: () => void): string {
+  const chunks: string[] = []
+  const original = process.stdout.write.bind(process.stdout)
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    chunks.push(String(chunk))
+    return true
+  }) as typeof process.stdout.write
+  try {
+    run()
+  } finally {
+    process.stdout.write = original
+  }
+  return chunks.join('')
+}
+
+test('boolean inputs accept true and false in any case', () => {
+  process.env[PAT_ENV_VAR] = 'pst_env::KEY'
+  process.env['INPUT_MASK-VALUES'] = 'FALSE'
+  process.env['INPUT_STRICT'] = 'False'
+  process.env['INPUT_EXPORT-ENV'] = 'false'
+  const inputs = readInputs()
+  assert.equal(inputs.maskValues, false)
+  assert.equal(inputs.strict, false)
+  assert.equal(inputs.exportEnv, false)
+})
+
+test('an unrecognized boolean keeps the documented default and warns instead of meaning false', () => {
+  process.env[PAT_ENV_VAR] = 'pst_env::KEY'
+  process.env['INPUT_MASK-VALUES'] = 'yes'
+  process.env['INPUT_STRICT'] = '0'
+  process.env['INPUT_EXPORT-ENV'] = 'ture'
+  let inputs: ReturnType<typeof readInputs> | undefined
+  const stdout = captureStdout(() => {
+    inputs = readInputs()
+  })
+  assert.equal(inputs?.maskValues, true, 'a typo must never turn masking off')
+  assert.equal(inputs?.strict, true, 'nor strict mode')
+  assert.equal(inputs?.exportEnv, true)
+  assert.match(stdout, /::warning::Input 'mask-values' must be true or false, got 'yes'\. Using the default \(true\)\./)
+  assert.match(stdout, /::warning::Input 'strict' must be true or false, got '0'/)
+  assert.match(stdout, /::warning::Input 'export-env' must be true or false, got 'ture'/)
+})

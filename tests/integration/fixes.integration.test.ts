@@ -99,6 +99,16 @@ test('security: PAT is masked the instant it is read', async () => {
   assert.ok(result.stdout.includes('::add-mask::pst_mock::TOKENKEY'), 'PAT registered with masker')
 })
 
+test('security: a typo in mask-values keeps masking on and warns', async () => {
+  const result = await runAction({
+    env: { DB_PASSWORD: 'pass://GithubActions/load-secrets-proton-pass-test/Password' },
+    inputs: { 'mask-values': 'yes' },
+  })
+  assert.equal(result.exitCode, 0)
+  assert.ok(result.stdout.includes('::add-mask::mock-real-password'), 'value is still masked')
+  assert.match(result.stdout, /::warning::Input 'mask-values' must be true or false/)
+})
+
 test('security: login failure produces an actionable error without the PAT value in the failure line', async () => {
   const result = await runAction({
     env: { DB_PASSWORD: 'pass://GithubActions/load-secrets-proton-pass-test/Password' },
