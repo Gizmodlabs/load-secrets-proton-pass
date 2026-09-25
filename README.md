@@ -145,6 +145,7 @@ Restrictions:
 - Wildcards are only valid in the **field** segment. `pass://Vault/*/field` and `pass://*/item/field` are rejected.
 - An item with zero fields fails the step (a warning instead when `strict: false`).
 - Two field names that sanitize to the same suffix (e.g. `api-key` and `api_key`) fail the step with both raw names listed. Rename the field or use explicit `pass://` URIs.
+- An expanded name that another reference also produces (e.g. `DB: pass://Vault/Item/*` yielding `DB_HOST` next to an explicit `DB_HOST: pass://...`) fails the step, listing every source, instead of letting one silently overwrite the other. Names compare case-insensitively.
 - Adding a new field to a globbed item adds a new env var on the next run. Keep that in mind when sharing vaults across workflows.
 
 ### Unresolved secrets (strict mode)

@@ -238,3 +238,22 @@ test('T22: resolved-keys excludes unresolved vars when strict=false', async () =
   assert.equal(result.exitCode, 0)
   assert.equal(result.output['resolved-keys'], 'GOOD_SECRET')
 })
+
+// A glob prefix expanding onto another reference's name used to export both:
+// environment order silently picked the value, and resolved-keys listed the
+// name twice. Every colliding name is now dropped and reported.
+test('glob-expanded names that collide with another reference fail instead of last-write-wins', async () => {
+  const result = await runAction({
+    env: {
+      DB: 'pass://GithubActions/multi-field-item/*',
+      DB_HOST: `${TEST_ITEM}/Email`,
+    },
+    inputs: { 'mask-values': 'false' },
+  })
+  assert.equal(result.exitCode, 1, 'strict mode fails on an ambiguous name')
+  assert.ok(!('DB_HOST' in result.env), 'the ambiguous name is not exported')
+  assert.ok(!('DB_HOST' in result.output), 'nor published as a step output')
+  assert.equal(result.output['resolved-keys'], 'DB_PASSWORD,DB_PORT', 'no duplicates; unambiguous names kept')
+  assert.ok(result.stdout.includes('DB_HOST <- pass://GithubActions/multi-field-item/host'))
+  assert.ok(result.stdout.includes(`DB_HOST <- ${TEST_ITEM}/Email`))
+})

@@ -44,7 +44,37 @@ export async function resolveSecrets(
     core.endGroup()
   }
 
-  return { resolved: context.resolved, failures: context.failures }
+  return { resolved: withoutNameCollisions(context), failures: context.failures }
+}
+
+/**
+ * Two references can produce the same output name: a glob prefix expanding
+ * onto a literal (`DB: pass://V/I/*` with a `host` field next to
+ * `DB_HOST: pass://...`), or two globs whose prefix and suffix meet.
+ * Exporting both would let environment order silently pick the winner, so
+ * every colliding name is dropped and reported instead. Names compare
+ * case-insensitively: expressions read step outputs case-insensitively, and
+ * Windows treats environment variable names the same way.
+ */
+function withoutNameCollisions(context: ResolverContext): ResolvedSecret[] {
+  const byName = new Map<string, ResolvedSecret[]>()
+  for (const secret of context.resolved) {
+    const key = secret.name.toUpperCase()
+    byName.set(key, [...(byName.get(key) ?? []), secret])
+  }
+
+  for (const secrets of byName.values()) {
+    if (secrets.length < 2) continue
+    const names = [...new Set(secrets.map(secret => secret.name))].join(', ')
+    context.annotate(`Output-name collision: more than one pass:// reference produces ${names}.`)
+    for (const secret of secrets) {
+      context.annotate(`  ${secret.name} <- ${secret.uri}`)
+      context.failures.push({ name: secret.name, uri: secret.uri, detail: 'output-name collision' })
+    }
+    context.annotate('Rename the env var or glob prefix so each name comes from exactly one reference.')
+  }
+
+  return context.resolved.filter(secret => byName.get(secret.name.toUpperCase())?.length === 1)
 }
 
 async function resolveOne(ref: SecretRef, context: ResolverContext): Promise<void> {

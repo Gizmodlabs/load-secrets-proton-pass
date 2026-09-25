@@ -71,6 +71,13 @@ working without changes. `v1.0.0` remains the bash implementation.
 
 ### Behavior changes to be aware of
 
+- **Output-name collisions fail instead of last-write-wins.** When a glob's
+  expanded name is also produced by another reference (`DB: pass://V/I/*`
+  with a `host` field next to `DB_HOST: pass://...`), every colliding name is
+  dropped and reported, which fails the step under `strict` (a warning
+  otherwise). 1.0.0 exported both, so environment order picked the value and
+  `resolved-keys` listed the name twice. Names compare case-insensitively.
+
 - **Default `pass-cli` is 2.3.3 (was 2.1.0); minimum 2.1.2.** Releases before
   2.1.2 are not published on GitHub Releases and cannot be verified, so an
   explicit `pass-cli-version: 2.1.0` (or `2.1.1`) now fails with a clear

@@ -22187,7 +22187,25 @@ async function resolveSecrets(refs, options) {
     await resolveOne(ref, context);
     core4.endGroup();
   }
-  return { resolved: context.resolved, failures: context.failures };
+  return { resolved: withoutNameCollisions(context), failures: context.failures };
+}
+function withoutNameCollisions(context) {
+  const byName = /* @__PURE__ */ new Map();
+  for (const secret of context.resolved) {
+    const key = secret.name.toUpperCase();
+    byName.set(key, [...byName.get(key) ?? [], secret]);
+  }
+  for (const secrets of byName.values()) {
+    if (secrets.length < 2) continue;
+    const names = [...new Set(secrets.map((secret) => secret.name))].join(", ");
+    context.annotate(`Output-name collision: more than one pass:// reference produces ${names}.`);
+    for (const secret of secrets) {
+      context.annotate(`  ${secret.name} <- ${secret.uri}`);
+      context.failures.push({ name: secret.name, uri: secret.uri, detail: "output-name collision" });
+    }
+    context.annotate("Rename the env var or glob prefix so each name comes from exactly one reference.");
+  }
+  return context.resolved.filter((secret) => byName.get(secret.name.toUpperCase())?.length === 1);
 }
 async function resolveOne(ref, context) {
   switch (ref.uri.kind) {
