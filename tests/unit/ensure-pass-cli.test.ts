@@ -90,13 +90,19 @@ test('unset version with no pass-cli on PATH installs the pinned default', async
 })
 
 test('unset version accepts any pass-cli already on PATH and touches nothing', async () => {
-  const { deps, events } = fakeInstall({ installed: 'pass-cli 2.1.2' })
+  const { deps, events } = fakeInstall({ installed: 'Proton Pass CLI 2.1.2 (abc1234)' })
   await ensurePassCli({ version: '', hash: '', platform: PLATFORM }, deps)
   assert.deepEqual(events, [])
 })
 
 test('an explicit version different from the one on PATH is downloaded and verified', async () => {
-  const { deps, events } = fakeInstall({ installed: 'pass-cli 2.3.2' })
+  const { deps, events } = fakeInstall({ installed: 'Proton Pass CLI 2.3.2 (abc1234)' })
   await ensurePassCli({ version: '2.3.3', hash: '', platform: PLATFORM }, deps)
   assert.deepEqual(kinds(events), ['sidecar', 'download', 'cache', 'addPath'])
+})
+
+test('an explicit version that matches the real CLI on PATH is not downloaded again', async () => {
+  const { deps, events } = fakeInstall({ installed: 'Proton Pass CLI 2.3.3 (04de99b)' })
+  await ensurePassCli({ version: '2.3.3', hash: '', platform: PLATFORM }, deps)
+  assert.deepEqual(events, [])
 })

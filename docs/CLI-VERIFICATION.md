@@ -9,6 +9,7 @@ Verification of the action's scripts against the [official Proton Pass CLI docum
 | Install | Downloads the requested [GitHub release](https://github.com/protonpass/pass-cli/releases) asset and verifies it against the asset's `.sha256` sidecar or the caller's `hash` input | Official release binary and checksum | Correct |
 | Login (PAT) | `pass-cli login` (with `PROTON_PASS_PERSONAL_ACCESS_TOKEN` in env) | Same | Correct |
 | Session probe | `pass-cli info` | Same | Correct |
+| Version probe | `pass-cli --version`, compared against an explicit `pass-cli-version` | Prints `Proton Pass CLI <x.y.z> (<git hash>)` (clap command name + version, every release since 2.1.2) | Correct |
 | Read field value | `pass-cli item view -- "pass://vault/item/field"` (`--` guards against flag-like values) | Same; prints the stored value followed by exactly one newline (`println!`, `pass-cli/src/commands/item/view.rs`), which the action strips | Correct |
 | List item fields (glob) | `pass-cli item view --output json -- "pass://vault/item"` | Same command, and the response schema is now pinned too: see [Item JSON schema](#item-json-schema) | Correct |
 | Inject template | `pass-cli inject --force -i template -o output` | Same. Without `--force` it refuses to replace an existing output file ("Output file already exists"); the file is written with `--file-mode` default `0600`; placeholders match `\{\{\s*(pass://[^}]+)\s*\}\}` (`pass-cli/src/commands/inject.rs`) | Correct |

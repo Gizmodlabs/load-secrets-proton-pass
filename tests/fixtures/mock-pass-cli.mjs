@@ -129,7 +129,8 @@ switch (command) {
     process.exit(0)
     break
   case '--version':
-    out('pass-cli 1.0.0 (mock)\n')
+    // Same shape as the real CLI: clap name, version, git hash.
+    out('Proton Pass CLI 1.0.0 (mock)\n')
     process.exit(0)
     break
   case 'item':

@@ -78,9 +78,13 @@ export function acceptsPreinstalled(versionOutput: string, requested: string): b
   return parseInstalledVersion(versionOutput) === requested
 }
 
-/** Extract the stable semantic version printed by `pass-cli --version`. */
+/**
+ * Extract the stable semantic version printed by `pass-cli --version`. Every
+ * release since 2.1.2 prints clap's command name, the version and the git
+ * hash: `Proton Pass CLI 2.4.1 (04de99b)`. `pass-cli 2.4.1` is accepted too.
+ */
 function parseInstalledVersion(versionOutput: string): string | null {
-  const match = /(?:^|\s)pass-cli\s+(\d+\.\d+\.\d+)(?:\s|$)/i.exec(versionOutput.trim())
+  const match = /(?:^|\s)(?:pass-cli|Proton Pass CLI)\s+(\d+\.\d+\.\d+)(?:\s|$)/i.exec(versionOutput.trim())
   return match?.[1] ?? null
 }
 

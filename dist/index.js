@@ -21930,7 +21930,7 @@ function acceptsPreinstalled(versionOutput, requested) {
   return parseInstalledVersion(versionOutput) === requested;
 }
 function parseInstalledVersion(versionOutput) {
-  const match = /(?:^|\s)pass-cli\s+(\d+\.\d+\.\d+)(?:\s|$)/i.exec(versionOutput.trim());
+  const match = /(?:^|\s)(?:pass-cli|Proton Pass CLI)\s+(\d+\.\d+\.\d+)(?:\s|$)/i.exec(versionOutput.trim());
   return match?.[1] ?? null;
 }
 async function ensurePassCli(options, deps = defaultDeps()) {
