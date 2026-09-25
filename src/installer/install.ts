@@ -26,6 +26,32 @@ export interface InstallOptions {
 }
 
 /**
+ * The side effects of an install, injectable so tests can prove the order
+ * that matters: nothing reaches the tool cache or PATH before its SHA-256 is
+ * verified.
+ */
+export interface InstallDeps {
+  /** `pass-cli --version` output of whatever is on PATH, or null when none runs. */
+  readonly installedVersion: () => Promise<string | null>
+  readonly http: ReleaseHttp
+  /** Download a URL to a temporary file and return its path. */
+  readonly download: (url: string) => Promise<string>
+  /** Move a verified download into the tool cache; returns the directory for PATH. */
+  readonly cache: (downloadPath: string, version: string, platform: Platform) => Promise<string>
+  readonly addPath: (dir: string) => void
+}
+
+function defaultDeps(): InstallDeps {
+  return {
+    installedVersion,
+    http: releaseHttp(),
+    download: url => toolCache.downloadTool(url),
+    cache: cacheBinary,
+    addPath: dir => core.addPath(dir),
+  }
+}
+
+/**
  * Verify a downloaded file against an expected SHA-256 hex digest.
  * On mismatch the file is deleted before throwing so an unverified binary
  * can never be executed later. The actual digest of a potentially tampered
@@ -63,8 +89,8 @@ function parseInstalledVersion(versionOutput: string): string | null {
  * the GitHub release asset and refuse to proceed without a SHA-256 match
  * against either the caller's `hash` input or the release's `.sha256` sidecar.
  */
-export async function ensurePassCli(options: InstallOptions): Promise<void> {
-  const preinstalled = await installedVersion()
+export async function ensurePassCli(options: InstallOptions, deps: InstallDeps = defaultDeps()): Promise<void> {
+  const preinstalled = await deps.installedVersion()
   if (preinstalled !== null) {
     if (acceptsPreinstalled(preinstalled, options.version)) {
       core.info(`pass-cli already installed: ${preinstalled}`)
@@ -77,15 +103,15 @@ export async function ensurePassCli(options: InstallOptions): Promise<void> {
   const platform = resolvePlatform(options.platform)
   core.info(`Platform: ${platform}`)
 
-  const spec = await resolveInstallerSpec(requested, platform, options.hash, releaseHttp())
+  const spec = await resolveInstallerSpec(requested, platform, options.hash, deps.http)
   core.info(`Installing pass-cli ${spec.version} from ${spec.url}`)
 
-  const downloadPath = await toolCache.downloadTool(spec.url)
+  const downloadPath = await deps.download(spec.url)
   await verifySha256(downloadPath, spec.sha256)
   core.info('SHA-256 checksum verified')
 
-  const cachedDir = await cacheBinary(downloadPath, spec.version, platform)
-  core.addPath(cachedDir)
+  const cachedDir = await deps.cache(downloadPath, spec.version, platform)
+  deps.addPath(cachedDir)
   core.info(`pass-cli ${spec.version} added to PATH`)
 }
 

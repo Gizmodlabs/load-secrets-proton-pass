@@ -21906,6 +21906,15 @@ async function resolveInstallerSpec(versionInput, platform, hashInput, http) {
 // src/installer/install.ts
 var HTTP_USER_AGENT = "load-secrets-proton-pass";
 var DEFAULT_PASS_CLI_VERSION = "2.3.3";
+function defaultDeps() {
+  return {
+    installedVersion,
+    http: releaseHttp(),
+    download: (url) => toolCache.downloadTool(url),
+    cache: cacheBinary,
+    addPath: (dir) => core2.addPath(dir)
+  };
+}
 async function verifySha256(filePath, expectedHex) {
   const fileBytes = await import_node_fs.promises.readFile(filePath);
   const actualHex = (0, import_node_crypto.createHash)("sha256").update(fileBytes).digest("hex");
@@ -21924,8 +21933,8 @@ function parseInstalledVersion(versionOutput) {
   const match = /(?:^|\s)pass-cli\s+(\d+\.\d+\.\d+)(?:\s|$)/i.exec(versionOutput.trim());
   return match?.[1] ?? null;
 }
-async function ensurePassCli(options) {
-  const preinstalled = await installedVersion();
+async function ensurePassCli(options, deps = defaultDeps()) {
+  const preinstalled = await deps.installedVersion();
   if (preinstalled !== null) {
     if (acceptsPreinstalled(preinstalled, options.version)) {
       core2.info(`pass-cli already installed: ${preinstalled}`);
@@ -21936,13 +21945,13 @@ async function ensurePassCli(options) {
   const requested = options.version === "" ? DEFAULT_PASS_CLI_VERSION : options.version;
   const platform = resolvePlatform(options.platform);
   core2.info(`Platform: ${platform}`);
-  const spec = await resolveInstallerSpec(requested, platform, options.hash, releaseHttp());
+  const spec = await resolveInstallerSpec(requested, platform, options.hash, deps.http);
   core2.info(`Installing pass-cli ${spec.version} from ${spec.url}`);
-  const downloadPath = await toolCache.downloadTool(spec.url);
+  const downloadPath = await deps.download(spec.url);
   await verifySha256(downloadPath, spec.sha256);
   core2.info("SHA-256 checksum verified");
-  const cachedDir = await cacheBinary(downloadPath, spec.version, platform);
-  core2.addPath(cachedDir);
+  const cachedDir = await deps.cache(downloadPath, spec.version, platform);
+  deps.addPath(cachedDir);
   core2.info(`pass-cli ${spec.version} added to PATH`);
 }
 async function installedVersion() {
