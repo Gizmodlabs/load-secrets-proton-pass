@@ -11,7 +11,7 @@ Verification of the action's scripts against the [official Proton Pass CLI docum
 | Session probe | `pass-cli info` | Same | Correct |
 | Read field value | `pass-cli item view -- "pass://vault/item/field"` (`--` guards against flag-like values) | Same; prints the stored value followed by exactly one newline (`println!`, `pass-cli/src/commands/item/view.rs`), which the action strips | Correct |
 | List item fields (glob) | `pass-cli item view --output json -- "pass://vault/item"` | Same command, and the response schema is now pinned too: see [Item JSON schema](#item-json-schema) | Correct |
-| Inject template | `pass-cli inject -i template -o output` | Same | Correct |
+| Inject template | `pass-cli inject --force -i template -o output` | Same. Without `--force` it refuses to replace an existing output file ("Output file already exists"); the file is written with `--file-mode` default `0600`; placeholders match `\{\{\s*(pass://[^}]+)\s*\}\}` (`pass-cli/src/commands/inject.rs`) | Correct |
 | Logout | `pass-cli logout` | Same | Correct |
 
 A real-network installer smoke on 2026-09-03 verified download, SHA-256, and

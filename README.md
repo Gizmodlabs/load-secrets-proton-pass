@@ -208,6 +208,8 @@ With an explicit output path:
     output-path: ".env.production"
 ```
 
+The rendered file replaces any existing file at the output path and is written with mode `0600`. It holds plaintext secrets, so keep it out of uploaded artifacts and caches. Every injected value is masked in the logs, including quoted values, `key: value` lines, and several placeholders on one line.
+
 ## Inputs
 
 | Input | Required | Default | Description |

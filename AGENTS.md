@@ -37,7 +37,7 @@ Domain model first, then orchestration:
 - `src/session/` — session dir setup (symlink-rejected, 0700) and login **bound to the PAT identity**: a SHA-256 fingerprint of the PAT is stored in the session dir; a valid session with a different/unknown fingerprint is logged out and replaced. Session ownership is saved before login so the post step cleans only the exact directory this invocation created.
 - `src/resolver/` — env scan (full 3-segment URIs only; others silently ignored), literal + glob resolution, suffix sanitization, and collision detection (within one glob and across references, case-insensitive).
 - `src/export/` — masks (whole value + per line) then writes via `core.setOutput`/`core.exportVariable` **only** — never raw appends to `$GITHUB_OUTPUT`/`$GITHUB_ENV` (heredoc protocol keeps multiline secrets intact).
-- `src/template/` — `pass-cli inject` template rendering; output path = explicit input > strip `.template`/`.tpl` > `+.resolved`. Template failures are hard errors regardless of `strict`.
+- `src/template/` — `pass-cli inject --force` template rendering; output path = explicit input > strip `.template`/`.tpl` > `+.resolved`. The template is read before rendering; masking recovers each injected value by matching the output against the template's literal text (falls back to `KEY=` lines with a warning). Template failures are hard errors regardless of `strict`.
 - `src/pass-cli.ts` — the single exec wrapper: silent output capture, `--` separator before every positional URI.
 - `src/index.ts` (main) / `src/cleanup.ts` (post; always runs, never fails the job).
 

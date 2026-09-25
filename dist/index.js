@@ -19664,10 +19664,10 @@ var require_core = __commonJS({
       (0, command_1.issueCommand)("set-env", { name }, convertedVal);
     }
     exports2.exportVariable = exportVariable3;
-    function setSecret4(secret) {
+    function setSecret3(secret) {
       (0, command_1.issueCommand)("add-mask", {}, secret);
     }
-    exports2.setSecret = setSecret4;
+    exports2.setSecret = setSecret3;
     function addPath2(inputPath) {
       const filePath = process.env["GITHUB_PATH"] || "";
       if (filePath) {
@@ -19739,10 +19739,10 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("error", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
     exports2.error = error2;
-    function warning3(message, properties = {}) {
+    function warning4(message, properties = {}) {
       (0, command_1.issueCommand)("warning", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
-    exports2.warning = warning3;
+    exports2.warning = warning4;
     function notice(message, properties = {}) {
       (0, command_1.issueCommand)("notice", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
@@ -22389,22 +22389,31 @@ function resolvedKeysCsv(resolved) {
 // src/template/inject.ts
 var import_node_fs3 = require("node:fs");
 var core6 = __toESM(require_core(), 1);
+var PLACEHOLDER = /\{\{\s*pass:\/\/[^}]+\s*\}\}/g;
 async function injectTemplate(options) {
   const { templatePath, maskValues } = options;
-  if (!(0, import_node_fs3.existsSync)(templatePath)) {
-    throw new Error(`Template file not found: ${templatePath}`);
-  }
+  const template = readTemplate(templatePath);
   const outputPath = deriveOutputPath(templatePath, options.outputPathInput);
   core6.info(`Injecting secrets into template: ${templatePath} -> ${outputPath}`);
   const runner = options.runner ?? runPassCli;
-  const result = await runner(["inject", "-i", templatePath, "-o", outputPath]);
+  const result = await runner(["inject", "--force", "-i", templatePath, "-o", outputPath]);
   if (result.exitCode !== 0) {
     const detail = stderrDetail(result);
     throw new Error(`Failed to inject secrets into template ${templatePath}: ${detail}`);
   }
-  if (maskValues) maskInjectedValues(templatePath, outputPath);
+  if (maskValues) maskInjectedValues(template, (0, import_node_fs3.readFileSync)(outputPath, "utf8"), outputPath);
   core6.info(`Template injection complete: ${outputPath}`);
   return outputPath;
+}
+function readTemplate(templatePath) {
+  try {
+    return (0, import_node_fs3.readFileSync)(templatePath, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      throw new Error(`Template file not found: ${templatePath}`);
+    }
+    throw new Error(`Could not read template file ${templatePath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 function deriveOutputPath(templatePath, outputPathInput) {
   if (outputPathInput) return outputPathInput;
@@ -22412,17 +22421,45 @@ function deriveOutputPath(templatePath, outputPathInput) {
   if (templatePath.endsWith(".tpl")) return templatePath.slice(0, -".tpl".length);
   return `${templatePath}.resolved`;
 }
-function maskInjectedValues(templatePath, outputPath) {
-  const templateLines = (0, import_node_fs3.readFileSync)(templatePath, "utf8").split("\n");
-  const outputLines = (0, import_node_fs3.readFileSync)(outputPath, "utf8").split("\n");
-  for (const templateLine of templateLines) {
+function injectedValues(template, rendered) {
+  const literals = template.split(PLACEHOLDER);
+  const head = literals[0] ?? "";
+  if (!rendered.startsWith(head)) return null;
+  const values = [];
+  let cursor = head.length;
+  for (let index = 1; index < literals.length; index += 1) {
+    const literal = literals[index] ?? "";
+    const isLast = index === literals.length - 1;
+    if (literal === "" && !isLast) continue;
+    let end;
+    if (isLast) {
+      end = rendered.length - literal.length;
+      if (end < cursor || !rendered.endsWith(literal)) return null;
+    } else {
+      end = rendered.indexOf(literal, cursor);
+      if (end === -1) return null;
+    }
+    values.push(rendered.slice(cursor, end));
+    cursor = end + literal.length;
+  }
+  return cursor === rendered.length ? values : null;
+}
+function maskInjectedValues(template, rendered, outputPath) {
+  const values = injectedValues(template, rendered);
+  if (values !== null) {
+    for (const value of values) maskValue(value);
+    return;
+  }
+  core6.warning(
+    `Could not match ${outputPath} back to its template, so only whole KEY=value lines that held a pass:// placeholder are masked. Values printed on their own may not be redacted.`
+  );
+  const outputLines = rendered.split("\n");
+  for (const templateLine of template.split("\n")) {
     if (!templateLine.includes("pass://")) continue;
     const key = templateLine.split("=", 1)[0];
     if (!key) continue;
-    const rendered = outputLines.find((line) => line.startsWith(`${key}=`));
-    if (!rendered) continue;
-    const value = rendered.slice(key.length + 1);
-    if (value.length > 0) core6.setSecret(value);
+    const line = outputLines.find((candidate) => candidate.startsWith(`${key}=`));
+    if (line) maskValue(line.slice(key.length + 1));
   }
 }
 

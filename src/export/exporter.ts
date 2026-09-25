@@ -26,7 +26,7 @@ export function exportSecrets(resolved: ResolvedSecret[], options: ExportOptions
  * non-empty line is masked individually so every line of a multiline secret
  * is redacted even when tools print lines in isolation.
  */
-function maskValue(value: string): void {
+export function maskValue(value: string): void {
   if (value.length === 0) return
   core.setSecret(value)
   for (const line of value.split('\n')) {
