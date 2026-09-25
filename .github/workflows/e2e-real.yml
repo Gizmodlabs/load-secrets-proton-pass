@@ -22,21 +22,34 @@ on:
       PROTON_PASS_PERSONAL_ACCESS_TOKEN:
         required: false
 
+permissions:
+  contents: read
+
+concurrency:
+  # Literal prefix: see the note in test.yml.
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   e2e:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Every platform the installer supports gets a real download and
+        # SHA-256 check: macos-latest is arm64, so the x86_64 macOS and the
+        # aarch64 Linux binaries need their own runners.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-26-intel, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env:
       # `secrets` is not available in job-level `if`; gate steps on this instead.
       # Forks and dependabot have no secret -> every step below is skipped.
       HAS_PAT: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Require real-vault PAT
         if: inputs.require-pat && env.HAS_PAT != 'true'

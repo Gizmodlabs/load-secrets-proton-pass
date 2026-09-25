@@ -1,0 +1,16 @@
+# zizmor (https://docs.zizmor.sh) configuration for the `workflows` job in
+# test.yml. Keep exceptions narrow and explain each one.
+rules:
+  self-repository:
+    # These workflows check out `inputs.ref` so release.yml can validate the
+    # exact tagged commit, and `uses: ./` runs that checkout. `uses: $/`
+    # always resolves to the running workflow's commit, which differs on a
+    # manual re-release, and actionlint 1.7.12 rejects it anyway.
+    #
+    # release.yml only calls reusable workflows, where `$/` would mean the
+    # same thing, but actionlint 1.7.12 rejects the syntax. Revisit once
+    # actionlint supports it (rhysd/actionlint#732).
+    ignore:
+      - test.yml
+      - e2e-real.yml
+      - release.yml
