@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   # Literal prefix: see the note in test.yml.
-  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

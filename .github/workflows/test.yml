@@ -15,9 +15,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Literal prefix, not github.workflow: when release.yml calls this workflow
-  # that expands to the caller's name, shared with the e2e-real.yml call.
-  group: test-${{ github.event.pull_request.number || github.ref }}
+  # PRs: a new push cancels the superseded run. Everything else is keyed by
+  # commit, so every push to main still gets its own run. Literal prefix, not
+  # github.workflow: when release.yml calls this workflow that expands to the
+  # caller's name, shared with its e2e-real.yml call.
+  group: test-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
