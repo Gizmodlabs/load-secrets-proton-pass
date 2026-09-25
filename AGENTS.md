@@ -14,6 +14,7 @@ npm run typecheck     # tsc --noEmit (TS7 strict; NEVER emit with tsc)
 npm run lint          # oxlint (typescript-eslint type-aware rules don't support TS7 yet)
 npm run build         # esbuild → dist/index.js + dist/cleanup.js (committed artifacts)
 npm test              # node:test — unit + integration (integration runs the BUILT dist/)
+npm run test:coverage # unit suites with the coverage gate CI enforces (85/85/75 lines/branches/functions)
 npm run build:check   # typecheck + build + test, the pre-push gate
 npm run test:workflow # mock action workflow through pinned agent-ci
 npm run verify        # build:check + lint + local workflow simulation
@@ -26,7 +27,8 @@ npm run test:workflow
 ```
 
 Integration tests execute `dist/index.js`, so **run `npm run build` before `npm test`** after changing `src/`. CI fails if `dist/` is stale relative to `src/` (dist-freshness job).
-`.github/workflows/e2e-real.yml` is the only workflow that exercises the real installer and vault; all other tests use the mock CLI.
+`.github/workflows/e2e-real.yml` is the only workflow that exercises the real installer and vault (on all five supported platforms); all other tests use the mock CLI.
+Workflows pin every action to a full commit SHA, and the `workflows` job in `test.yml` runs actionlint and zizmor on them; accepted zizmor exceptions live in `.github/zizmor.yml`, each with its reason.
 
 ## Architecture
 
@@ -55,7 +57,7 @@ Key cross-cutting points:
 
 - `tests/unit/` — import `src/*.ts` directly (node's native type stripping; relative imports need explicit `.ts` extensions).
 - `tests/integration/` — the ported bash behavioral spec (22 scenarios) + regression tests for the five critical fixes, run against `dist/`.
-- Mock new URI shapes by adding entries in `tests/fixtures/mock-pass-cli.mjs` (`ITEM_JSON` / `FIELD_VALUES`).
+- Mock new URI shapes by adding entries in `tests/fixtures/mock-pass-cli.mjs` (`ITEM_JSON` / `FIELD_VALUES`, `INJECT_VALUES` for templates). The mock mirrors real CLI behavior that the action depends on: `--version` prints `Proton Pass CLI <x.y.z> (<hash>)`, and `inject` refuses to overwrite an existing file without `--force`. Check new assumptions against the pass-cli source and record them in `docs/CLI-VERIFICATION.md`.
 - `tests/fixtures/install-mock.mjs` installs the mock in smoke workflows via `$GITHUB_PATH`.
 
 ## Constraints worth remembering

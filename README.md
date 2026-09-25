@@ -39,8 +39,8 @@ Each `pass://vault/item/field` value is replaced with the real secret and export
 Log in to `pass-cli` on your local machine, then create a scoped, expiring token for CI:
 
 ```bash
-# Create a named token (90-day expiration in this example)
-pass-cli pat create --name "github-actions" --expiration 90d
+# Create a named token (3-month expiration in this example)
+pass-cli pat create --name "github-actions" --expiration 3m
 
 # Grant it read-only access to each vault it should be able to see.
 # IMPORTANT: `pat create` alone gives the token zero vault access — you must
@@ -51,9 +51,9 @@ pass-cli pat access grant --pat-name "github-actions" --vault-name "Production" 
 The `create` command prints the token in the format `pst_xxxx::TOKENKEY`. **Copy it now — it is shown only once.**
 
 Token tips:
-- Scope per-vault with `--role viewer` so the token can read but never write.
-- Use short expirations (`30d`, `90d`) and rotate.
-- Revoke any time with `pass-cli pat delete --name "github-actions"`.
+- Scope per-vault with `--role viewer` so the token can read but never write, or narrow it to one item with `--item-title "DB password"`.
+- Use short expirations and rotate. `--expiration` takes `1h`, `1d`, `1w`, `1m`, `3m`, `6m` or `1y`. `pass-cli pat renew --personal-access-token-name "github-actions" --expiration 3m` issues a new token string (update the GitHub secret; the old one stops working) and keeps its vault access.
+- Revoke any time: `pass-cli pat list` shows the token's ID, then `pass-cli pat delete --pat-id <ID>`.
 
 ### 3. Add the GitHub secret
 
@@ -74,6 +74,8 @@ pass://vault-name/item-name/field-name
 - **vault-name** — name of the Proton Pass vault
 - **item-name** — name of the item in the vault
 - **field-name** — `password`, `username`, or any custom field name
+
+`pass-cli` resolves the reference, so its forms pass straight through: vaults and items by ID instead of name, section-qualified fields (`pass://Work/Deploy Targets/Staging.password`), and TOTP fields, which resolve to the current code (`?totp=uri` returns the stored `otpauth://` URI instead).
 
 ## Usage
 
@@ -277,12 +279,12 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # oxlint (typescript-eslint's type-aware rules don't support the TS7 checker yet)
 npm run build       # esbuild → dist/index.js + dist/cleanup.js
 npm test            # node:test — unit + integration against the mock pass-cli (no Proton account needed)
+npm run test:coverage # unit suites with the coverage gate CI enforces
 npm run test:workflow # agent-ci mock workflow using the official Actions runner
 npm run verify      # build check + lint + agent-ci workflow
-
-# Full workflow simulation using the official GitHub Actions runner
-npm run test:workflow
 ```
+
+CI also lints the workflows with [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh); run `actionlint` and `zizmor .github/` locally if you change them. Accepted zizmor exceptions live in `.github/zizmor.yml`.
 
 `dist/` is a committed build artifact — rebuild and commit it with any `src/` change (CI fails on stale `dist/`).
 

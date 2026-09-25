@@ -125,7 +125,7 @@ Accepted by three commands: `view`, `run`, `inject`.
 Run locally (you need an interactive `pass-cli` session first):
 
 ```bash
-pass-cli pat create --name "github-actions" --expiration 90d
+pass-cli pat create --name "github-actions" --expiration 3m
 pass-cli pat access grant --pat-name "github-actions" --vault-name "Production" --role viewer
 ```
 
