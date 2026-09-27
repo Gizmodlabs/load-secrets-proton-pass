@@ -21,8 +21,6 @@ export interface ActionInputs {
 /**
  * Read and validate action inputs. The PAT is registered with the log
  * masker before this function returns — no code path sees it unmasked.
- * Boolean inputs follow the bash action's semantics: empty means the
- * documented default, anything other than the string "true" means false.
  */
 export function readInputs(): ActionInputs {
   return {
@@ -49,8 +47,17 @@ function readPat(): string {
   return pat
 }
 
+/**
+ * Empty means the documented default; `true` and `false` match in any case.
+ * Anything else is almost always a typo, so it keeps the default and warns
+ * rather than meaning false: `mask-values: yes` must not turn masking off.
+ */
 function booleanInput(name: string, defaultValue: boolean): boolean {
   const raw = core.getInput(name)
   if (raw === '') return defaultValue
-  return raw.toLowerCase() === 'true'
+  const normalized = raw.toLowerCase()
+  if (normalized === 'true') return true
+  if (normalized === 'false') return false
+  core.warning(`Input '${name}' must be true or false, got '${raw}'. Using the default (${defaultValue}).`)
+  return defaultValue
 }

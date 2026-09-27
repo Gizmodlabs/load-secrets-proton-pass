@@ -60,3 +60,17 @@ test('itemUri drops the field segment (used for glob field listing)', () => {
   assert.ok(uri)
   assert.equal(uri.itemUri, 'pass://GithubActions/multi-field-item')
 })
+
+test('pass-cli reference extras (section-qualified fields, ?totp=) pass through as literals', () => {
+  const sectioned = parsePassUri('pass://Work/Deploy Targets/Staging.password')
+  assert.ok(sectioned)
+  assert.equal(sectioned.kind, 'literal')
+  assert.equal(sectioned.item, 'Deploy Targets')
+  assert.equal(sectioned.field, 'Staging.password')
+
+  const totpUri = parsePassUri('pass://Work/GitHub/totp?totp=uri')
+  assert.ok(totpUri)
+  assert.equal(totpUri.kind, 'literal')
+  assert.equal(totpUri.field, 'totp?totp=uri')
+  assert.equal(totpUri.raw, 'pass://Work/GitHub/totp?totp=uri', 'handed to pass-cli verbatim')
+})

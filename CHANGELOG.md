@@ -71,6 +71,28 @@ working without changes. `v1.0.0` remains the bash implementation.
 
 ### Behavior changes to be aware of
 
+- **Output-name collisions fail instead of last-write-wins.** When a glob's
+  expanded name is also produced by another reference (`DB: pass://V/I/*`
+  with a `host` field next to `DB_HOST: pass://...`), every colliding name is
+  dropped and reported, which fails the step under `strict` (a warning
+  otherwise). 1.0.0 exported both, so environment order picked the value and
+  `resolved-keys` listed the name twice. Names compare case-insensitively.
+- **Unrecognized boolean inputs keep their default.** `mask-values`, `strict`
+  and `export-env` take `true` or `false` in any case. Any other value logs a
+  warning and uses the documented default (`true` for all three). 1.0.0
+  treated anything but `true` as false, so a typo such as `mask-values: yes`
+  silently turned masking off.
+- **Template output replaces an existing file.** The action passes `--force`
+  to `pass-cli inject`, which otherwise refuses to overwrite. In 1.0.0 any
+  re-render (a re-run, a persistent self-hosted workspace, an `output-path`
+  onto an existing file) failed with "Output file already exists".
+- **Template masking targets each injected value.** 1.0.0 masked the value
+  part of each `KEY=` line, so a quoted value was registered with its quotes,
+  `key: value` (YAML) lines were not masked at all, and a line with several
+  placeholders (a DSN) was masked only as a whole. The action now recovers
+  every substituted value from the rendered file and masks it on its own,
+  line by line when multiline.
+
 - **Default `pass-cli` is 2.3.3 (was 2.1.0); minimum 2.1.2.** Releases before
   2.1.2 are not published on GitHub Releases and cannot be verified, so an
   explicit `pass-cli-version: 2.1.0` (or `2.1.1`) now fails with a clear

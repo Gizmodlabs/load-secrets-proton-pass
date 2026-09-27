@@ -39,8 +39,8 @@ Each `pass://vault/item/field` value is replaced with the real secret and export
 Log in to `pass-cli` on your local machine, then create a scoped, expiring token for CI:
 
 ```bash
-# Create a named token (90-day expiration in this example)
-pass-cli pat create --name "github-actions" --expiration 90d
+# Create a named token (3-month expiration in this example)
+pass-cli pat create --name "github-actions" --expiration 3m
 
 # Grant it read-only access to each vault it should be able to see.
 # IMPORTANT: `pat create` alone gives the token zero vault access — you must
@@ -51,9 +51,9 @@ pass-cli pat access grant --pat-name "github-actions" --vault-name "Production" 
 The `create` command prints the token in the format `pst_xxxx::TOKENKEY`. **Copy it now — it is shown only once.**
 
 Token tips:
-- Scope per-vault with `--role viewer` so the token can read but never write.
-- Use short expirations (`30d`, `90d`) and rotate.
-- Revoke any time with `pass-cli pat delete --name "github-actions"`.
+- Scope per-vault with `--role viewer` so the token can read but never write, or narrow it to one item with `--item-title "DB password"`.
+- Use short expirations and rotate. `--expiration` takes `1h`, `1d`, `1w`, `1m`, `3m`, `6m` or `1y`. `pass-cli pat renew --personal-access-token-name "github-actions" --expiration 3m` issues a new token string (update the GitHub secret; the old one stops working) and keeps its vault access.
+- Revoke any time: `pass-cli pat list` shows the token's ID, then `pass-cli pat delete --pat-id <ID>`.
 
 ### 3. Add the GitHub secret
 
@@ -74,6 +74,8 @@ pass://vault-name/item-name/field-name
 - **vault-name** — name of the Proton Pass vault
 - **item-name** — name of the item in the vault
 - **field-name** — `password`, `username`, or any custom field name
+
+`pass-cli` resolves the reference, so its forms pass straight through: vaults and items by ID instead of name, section-qualified fields (`pass://Work/Deploy Targets/Staging.password`), and TOTP fields, which resolve to the current code (`?totp=uri` returns the stored `otpauth://` URI instead).
 
 ## Usage
 
@@ -145,6 +147,7 @@ Restrictions:
 - Wildcards are only valid in the **field** segment. `pass://Vault/*/field` and `pass://*/item/field` are rejected.
 - An item with zero fields fails the step (a warning instead when `strict: false`).
 - Two field names that sanitize to the same suffix (e.g. `api-key` and `api_key`) fail the step with both raw names listed. Rename the field or use explicit `pass://` URIs.
+- An expanded name that another reference also produces (e.g. `DB: pass://Vault/Item/*` yielding `DB_HOST` next to an explicit `DB_HOST: pass://...`) fails the step, listing every source, instead of letting one silently overwrite the other. Names compare case-insensitively.
 - Adding a new field to a globbed item adds a new env var on the next run. Keep that in mind when sharing vaults across workflows.
 
 ### Unresolved secrets (strict mode)
@@ -207,6 +210,8 @@ With an explicit output path:
     output-path: ".env.production"
 ```
 
+The rendered file replaces any existing file at the output path and is written with mode `0600`. It holds plaintext secrets, so keep it out of uploaded artifacts and caches. Every injected value is masked in the logs, including quoted values, `key: value` lines, and several placeholders on one line.
+
 ## Inputs
 
 | Input | Required | Default | Description |
@@ -220,6 +225,8 @@ With an explicit output path:
 | `strict` | No | `true` | Fail the step when any `pass://` URI cannot be resolved. Set `false` for best-effort mode: failures become warnings and the step continues |
 | `output-path` | No | `''` | Where to write the rendered template. Defaults to stripping `.template`/`.tpl`, else `<input>.resolved`. |
 | `export-env` | No | `true` | Export resolved secrets as env vars for subsequent steps. Set `false` to consume them only as step outputs. (Upstream `protonpass/load-secret-action` defaults this to `false`; this action defaults to `true` for compatibility with its own earlier releases.) |
+
+Boolean inputs take `true` or `false` in any case. Any other value logs a warning and keeps the default, so a typo can never switch masking or strict mode off.
 
 ## Outputs
 
@@ -272,12 +279,12 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # oxlint (typescript-eslint's type-aware rules don't support the TS7 checker yet)
 npm run build       # esbuild → dist/index.js + dist/cleanup.js
 npm test            # node:test — unit + integration against the mock pass-cli (no Proton account needed)
+npm run test:coverage # unit suites with the coverage gate CI enforces
 npm run test:workflow # agent-ci mock workflow using the official Actions runner
 npm run verify      # build check + lint + agent-ci workflow
-
-# Full workflow simulation using the official GitHub Actions runner
-npm run test:workflow
 ```
+
+CI also lints the workflows with [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh); run `actionlint` and `zizmor .github/` locally if you change them. Accepted zizmor exceptions live in `.github/zizmor.yml`.
 
 `dist/` is a committed build artifact — rebuild and commit it with any `src/` change (CI fails on stale `dist/`).
 

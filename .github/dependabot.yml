@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Let a new release age a week before adopting it, so a compromised or
+    # yanked version is usually caught upstream first. Security updates are
+    # never delayed by cooldown.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore
@@ -13,6 +18,29 @@ updates:
       - github-actions
     groups:
       actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The @actions/* toolkit and everything else in package-lock.json. These
+  # land in the committed dist/ bundles, so an update PR fails the dist/
+  # freshness check until someone runs `npm run build` and pushes the result.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - javascript
+    groups:
+      npm-minor-patch:
         update-types:
           - minor
           - patch

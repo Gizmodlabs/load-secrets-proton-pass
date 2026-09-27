@@ -366,3 +366,41 @@ test('two sections sharing a field name stay distinct instead of colliding', asy
   assert.deepEqual(names, ['ALPHA_SHARED', 'BETA_SHARED'])
   assert.deepEqual(report.failures, [])
 })
+
+test('a glob-expanded name colliding with a literal ref is dropped and reported, not last-write-wins', async () => {
+  const itemJson = JSON.stringify(loginItem('multi', { custom: ['host', 'port'] }))
+  const { runner } = cannedRunner([
+    { match: args => args.includes('json'), result: { stdout: itemJson } },
+    { match: args => args.includes('pass://Vault/Item/host'), result: { stdout: 'glob-host\n' } },
+    { match: args => args.includes('pass://Vault/Item/port'), result: { stdout: '5432\n' } },
+    { match: args => args.includes('pass://Vault/Other/host'), result: { stdout: 'literal-host\n' } },
+  ])
+  const { annotate, lines } = collectAnnotations()
+  const report = await resolveSecrets(
+    refsFor({ DB: 'pass://Vault/Item/*', DB_HOST: 'pass://Vault/Other/host' }),
+    { annotate, runner },
+  )
+
+  assert.deepEqual(report.resolved.map(secret => secret.name), ['DB_PORT'], 'unambiguous names still resolve')
+  assert.deepEqual(
+    report.failures.map(failure => formatFailure(failure)),
+    [
+      'DB_HOST -> pass://Vault/Item/host (output-name collision)',
+      'DB_HOST -> pass://Vault/Other/host (output-name collision)',
+    ],
+  )
+  assert.ok(lines.some(line => line.includes('more than one pass:// reference produces DB_HOST')))
+  assert.ok(lines.some(line => line.includes('DB_HOST <- pass://Vault/Other/host')), 'every source is named')
+})
+
+test('output names collide case-insensitively (step outputs and Windows env are case-insensitive)', async () => {
+  const { runner } = cannedRunner([])
+  const { annotate, lines } = collectAnnotations()
+  const report = await resolveSecrets(
+    refsFor({ db_host: 'pass://Vault/A/host', DB_HOST: 'pass://Vault/B/host' }),
+    { annotate, runner },
+  )
+  assert.deepEqual(report.resolved, [])
+  assert.equal(report.failures.length, 2)
+  assert.ok(lines.some(line => line.includes('produces db_host, DB_HOST')))
+})

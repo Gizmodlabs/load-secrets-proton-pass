@@ -3,7 +3,7 @@
 // tests/mock-pass-cli.sh from the bash version, plus a multiline PEM item.
 // Like the real CLI, `item view` prints the stored value followed by one newline.
 // Understands the `--` argument separator the action now always passes.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { PEM_KEY } from './pem-fixture.mjs'
 import { loginItem, customItem } from './item-json.mjs'
 
@@ -46,6 +46,17 @@ const FIELD_VALUES = {
   'GithubActions/ssh-key-item/private-key': PEM_KEY,
 }
 
+// Distinct per-reference values for `inject`, so tests can tell exactly which
+// substituted value was masked. Anything else injects 'mock-injected-value'.
+const INJECT_VALUES = {
+  'GithubActions/template-item/plain': 'plain-injected',
+  'GithubActions/template-item/quoted': 'quoted-injected',
+  'GithubActions/template-item/yaml': 'yaml-injected',
+  'GithubActions/template-item/user': 'dsn-user',
+  'GithubActions/template-item/pw': 'dsn-pw',
+  'GithubActions/template-item/pem': PEM_KEY,
+}
+
 function itemView(args) {
   let uri = ''
   let output = 'human'
@@ -79,14 +90,21 @@ function itemView(args) {
 function inject(args) {
   let template = ''
   let output = ''
+  let force = false
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '-i') template = args[++i] ?? ''
-    if (args[i] === '-o') output = args[++i] ?? ''
+    else if (args[i] === '-o') output = args[++i] ?? ''
+    else if (args[i] === '-f' || args[i] === '--force') force = true
   }
   if (!template || !output) fail('inject requires -i and -o')
+  // Like the real CLI (inject.rs): never replace an existing file without --force.
+  if (existsSync(output) && !force) {
+    fail(`File '${output}' already exists. Use --force to overwrite.\nError: Output file already exists`)
+  }
+  // Same placeholder pattern as the real CLI: {{ <ws> pass://... <ws> }}.
   const rendered = readFileSync(template, 'utf8').replace(
-    /\{\{ *pass:\/\/[^}]+ *\}\}/g,
-    'mock-injected-value',
+    /\{\{\s*(pass:\/\/[^}]+)\s*\}\}/g,
+    (_, uri) => INJECT_VALUES[uri.trim().replace(/^pass:\/\//, '')] ?? 'mock-injected-value',
   )
   writeFileSync(output, rendered)
   process.exit(0)
@@ -111,7 +129,8 @@ switch (command) {
     process.exit(0)
     break
   case '--version':
-    out('pass-cli 1.0.0 (mock)\n')
+    // Same shape as the real CLI: clap name, version, git hash.
+    out('Proton Pass CLI 1.0.0 (mock)\n')
     process.exit(0)
     break
   case 'item':

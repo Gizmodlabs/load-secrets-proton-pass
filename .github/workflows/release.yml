@@ -11,6 +11,8 @@ on:
         required: true
         type: string
 
+permissions: {}
+
 concurrency:
   group: release
   cancel-in-progress: false
@@ -25,9 +27,10 @@ jobs:
       major: ${{ steps.tag.outputs.major }}
       sha: ${{ steps.tag.outputs.sha }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Resolve immutable release commit
         id: tag
         env:
@@ -42,9 +45,11 @@ jobs:
             echo "Tag '$RELEASE_TAG' does not exist" >&2
             exit 1
           fi
-          echo "name=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "major=${RELEASE_TAG%%.*}" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "name=$RELEASE_TAG"
+            echo "major=${RELEASE_TAG%%.*}"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
 
   validate-test:
     needs: prepare
@@ -69,19 +74,23 @@ jobs:
     needs: [prepare, validate-test, validate-e2e]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: write # create the GitHub Release and move the floating major tag
+      id-token: write # sigstore keyless signing for the provenance attestation
+      attestations: write # store the attestation
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      # No dependency cache in the job that publishes: a cache entry written
+      # by any earlier run could otherwise feed the release build.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+          package-manager-cache: false
+      # Install scripts never run with this job's write token and OIDC access.
+      - run: npm ci --ignore-scripts
       - name: Verify tag still targets the validated commit
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -101,24 +110,28 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           npm run release:package -- --tag "$RELEASE_TAG" --out-dir .release
-          echo "tarball=.release/load-secrets-proton-pass-${RELEASE_TAG}.tar.gz" >> "$GITHUB_OUTPUT"
-          echo "checksum=.release/load-secrets-proton-pass-${RELEASE_TAG}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+          {
+            echo "tarball=.release/load-secrets-proton-pass-${RELEASE_TAG}.tar.gz"
+            echo "checksum=.release/load-secrets-proton-pass-${RELEASE_TAG}.tar.gz.sha256"
+          } >> "$GITHUB_OUTPUT"
       - name: Attest build provenance (sigstore)
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ steps.pack.outputs.tarball }}
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+          CHECKSUM: ${{ steps.pack.outputs.checksum }}
         run: |
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$RELEASE_TAG" \
             --generate-notes \
             --verify-tag \
-            "${{ steps.pack.outputs.tarball }}" \
-            "${{ steps.pack.outputs.checksum }}"
+            "$TARBALL" \
+            "$CHECKSUM"
       - name: Move floating major tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,4 +141,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -f "$MAJOR" "$RELEASE_TAG"
-          git push origin "$MAJOR" --force
+          # The checkout persists no credentials; only this push gets the token.
+          git push "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/$MAJOR" --force

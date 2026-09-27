@@ -13,6 +13,7 @@
     "test": "node --test \"tests/unit/*.test.ts\" \"tests/integration/*.test.ts\"",
     "test:unit": "node --test \"tests/unit/*.test.ts\"",
     "test:integration": "node --test \"tests/integration/*.test.ts\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=85 --test-coverage-branches=85 --test-coverage-functions=75 \"tests/unit/*.test.ts\"",
     "lint": "oxlint src tests",
     "build:check": "npm run typecheck && npm run build && npm test",
     "release:package": "node src/release-package.ts",
@@ -20,10 +21,10 @@
     "verify": "npm run build:check && npm run lint && npm run test:workflow"
   },
   "dependencies": {
-    "@actions/core": "^1.11.1",
-    "@actions/exec": "^1.1.1",
-    "@actions/http-client": "^2.2.3",
-    "@actions/tool-cache": "^2.0.2"
+    "@actions/core": "^3.0.1",
+    "@actions/exec": "^3.0.0",
+    "@actions/http-client": "^4.0.1",
+    "@actions/tool-cache": "^4.0.0"
   },
   "devDependencies": {
     "@redwoodjs/agent-ci": "0.18.1",

@@ -10,7 +10,7 @@ const URI = 'pass://GithubActions/load-secrets-proton-pass-test/Password'
 test('unset pass-cli-version accepts the pre-installed CLI without touching the network', async () => {
   const result = await runAction({ env: { DB_PASSWORD: URI }, inputs: { 'pass-cli-version': '' } })
   assert.equal(result.exitCode, 0, result.stdout)
-  assert.match(result.stdout, /pass-cli already installed: pass-cli 1\.0\.0 \(mock\)/)
+  assert.match(result.stdout, /pass-cli already installed: Proton Pass CLI 1\.0\.0 \(mock\)/)
   assert.equal(result.env['DB_PASSWORD'], 'mock-real-password')
 })
 
