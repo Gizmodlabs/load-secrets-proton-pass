@@ -39,9 +39,13 @@ inputs:
     required: false
     default: ''
   export-env:
-    description: 'Export resolved secrets as environment variables for subsequent steps (default). Set to false to expose them only as step outputs. Note: the upstream protonpass/load-secret-action defaults this to false; this action defaults to true to stay compatible with its own earlier releases.'
+    description: 'Export resolved secrets as environment variables for subsequent steps (default). Set to false for outputs-only mode: secrets are exposed only as step outputs, and the pass-cli session is neither exported nor kept, so later steps cannot read the vault through it. Note: the upstream protonpass/load-secret-action defaults this to false; this action defaults to true to stay compatible with its own earlier releases.'
     required: false
     default: 'true'
+  agent-reason:
+    description: 'Audit reason sent with each secret read when the token is a Proton Pass agent (`pass-cli agent create`); plain personal access tokens ignore it. Empty uses PROTON_PASS_AGENT_REASON from the step env, else describes the run (run URL, workflow, ref, actor). Each read prefixes what it loads, e.g. `load DB_PASSWORD: <reason>`.'
+    required: false
+    default: ''
 
 outputs:
   resolved-keys:

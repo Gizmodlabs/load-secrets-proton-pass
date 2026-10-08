@@ -23103,7 +23103,8 @@ function readInputs() {
     maskValues: booleanInput("mask-values", true),
     strict: booleanInput("strict", true),
     outputPath: getInput("output-path"),
-    exportEnv: booleanInput("export-env", true)
+    exportEnv: booleanInput("export-env", true),
+    agentReason: getInput("agent-reason")
   };
 }
 function readPat() {
@@ -23122,8 +23123,7 @@ function booleanInput(name, defaultValue) {
   const normalized = raw.toLowerCase();
   if (normalized === "true") return true;
   if (normalized === "false") return false;
-  warning(`Input '${name}' must be true or false, got '${raw}'. Using the default (${defaultValue}).`);
-  return defaultValue;
+  throw new Error(`Input '${name}' must be true or false, got '${raw}'.`);
 }
 
 // src/installer/install.ts
@@ -23696,17 +23696,17 @@ var SESSION_DIR_STATE_KEY = "session-dir";
 var SESSION_DIR_OWNED_STATE_KEY = "session-dir-owned";
 var OWNER_ONLY_DIR = 448;
 var OWNER_ONLY_FILE = 384;
-async function establishSession(pat, runner = runPassCli) {
+async function establishSession(pat, runner = runPassCli, options = { shareWithLaterSteps: true }) {
   const session = prepareSessionDir();
-  const { sessionDir } = session;
+  const sessionDir = session.dir;
   saveState(SESSION_DIR_STATE_KEY, sessionDir);
   saveState(SESSION_DIR_OWNED_STATE_KEY, String(session.owned));
-  exportSessionEnv(sessionDir);
+  pointPassCliAt(sessionDir, options.shareWithLaterSteps);
   const fingerprint = patFingerprint(pat);
   const probe = await runner(["info"]);
   if (probe.exitCode === 0 && recordedFingerprint(sessionDir) === fingerprint) {
     info("pass-cli session already active for this token, skipping login");
-    return sessionDir;
+    return session;
   }
   if (probe.exitCode === 0) {
     info("Existing pass-cli session does not match the supplied token, replacing it");
@@ -23728,7 +23728,34 @@ async function establishSession(pat, runner = runPassCli) {
   }
   (0, import_node_fs2.writeFileSync)((0, import_node_path.join)(sessionDir, PAT_FINGERPRINT_FILE), fingerprint, { mode: OWNER_ONLY_FILE });
   info("Authenticated with Proton Pass");
-  return sessionDir;
+  return session;
+}
+async function closeSession(session, runner = runPassCli) {
+  try {
+    const result = await runner(["logout"], {
+      PROTON_PASS_SESSION_DIR: session.dir,
+      PROTON_PASS_KEY_PROVIDER: "fs"
+    });
+    if (result.exitCode !== 0) {
+      warning(`pass-cli logout exited with code ${result.exitCode} (continuing)`);
+    }
+  } catch (err) {
+    warning(`pass-cli logout failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    if (session.owned) {
+      await import_node_fs2.promises.rm(session.dir, { recursive: true, force: true });
+      return;
+    }
+    await import_node_fs2.promises.rm((0, import_node_path.join)(session.dir, PAT_FINGERPRINT_FILE), { force: true });
+  } catch (err) {
+    warning(`Could not remove Proton Pass session state: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+async function endSessionNow(session, runner = runPassCli) {
+  await closeSession(session, runner);
+  saveState(SESSION_DIR_STATE_KEY, "");
+  info("Proton Pass session ended; later steps cannot use it");
 }
 function patFingerprint(pat) {
   return (0, import_node_crypto2.createHash)("sha256").update(pat).digest("hex");
@@ -23740,10 +23767,10 @@ function prepareSessionDir() {
     const existed = directoryExists(configured);
     (0, import_node_fs2.mkdirSync)(configured, { recursive: true, mode: OWNER_ONLY_DIR });
     (0, import_node_fs2.chmodSync)(configured, OWNER_ONLY_DIR);
-    return { sessionDir: configured, owned: !existed };
+    return { dir: configured, owned: !existed };
   }
   const base = process.env.RUNNER_TEMP || (0, import_node_os.tmpdir)();
-  return { sessionDir: (0, import_node_fs2.mkdtempSync)((0, import_node_path.join)(base, "proton-pass-session-")), owned: true };
+  return { dir: (0, import_node_fs2.mkdtempSync)((0, import_node_path.join)(base, "proton-pass-session-")), owned: true };
 }
 function directoryExists(dir) {
   try {
@@ -23764,10 +23791,11 @@ function rejectSymlink(dir) {
     throw new Error(`PROTON_PASS_SESSION_DIR is a symbolic link, refusing to use it: ${dir}`);
   }
 }
-function exportSessionEnv(sessionDir) {
+function pointPassCliAt(sessionDir, shareWithLaterSteps) {
   process.env.PROTON_PASS_SESSION_DIR = sessionDir;
-  exportVariable("PROTON_PASS_SESSION_DIR", sessionDir);
   process.env.PROTON_PASS_KEY_PROVIDER = "fs";
+  if (!shareWithLaterSteps) return;
+  exportVariable("PROTON_PASS_SESSION_DIR", sessionDir);
   exportVariable("PROTON_PASS_KEY_PROVIDER", "fs");
 }
 function recordedFingerprint(sessionDir) {
@@ -23841,11 +23869,40 @@ function troubleshootingHints(detail, vault, item, field) {
   return [];
 }
 
+// src/domain/agent-reason.ts
+var AGENT_REASON_ENV_VAR = "PROTON_PASS_AGENT_REASON";
+var MAX_AGENT_REASON_LENGTH = 300;
+function agentReasonContext(input, env) {
+  return input.trim() || env[AGENT_REASON_ENV_VAR]?.trim() || describeRun(env);
+}
+function describeRun(env) {
+  const { GITHUB_REPOSITORY: repo, GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: attempt } = env;
+  const server = env.GITHUB_SERVER_URL || "https://github.com";
+  const url = repo && runId ? `${server}/${repo}/actions/runs/${runId}${attempt ? `/attempts/${attempt}` : ""}` : "";
+  const workflow = env.GITHUB_WORKFLOW;
+  const details = [
+    workflow ? `workflow "${workflow}"${env.GITHUB_RUN_NUMBER ? ` #${env.GITHUB_RUN_NUMBER}` : ""}` : "",
+    env.GITHUB_REF_NAME ? `ref ${env.GITHUB_REF_NAME}` : "",
+    env.GITHUB_ACTOR ? `actor ${env.GITHUB_ACTOR}` : ""
+  ].filter(Boolean);
+  const run2 = url ? `GitHub Actions run ${url}` : "GitHub Actions run";
+  return details.length > 0 ? `${run2} (${details.join(", ")})` : run2;
+}
+function formatAgentReason(purpose, context) {
+  const reason = Array.from(`${purpose}: ${context}`);
+  if (reason.length <= MAX_AGENT_REASON_LENGTH) return reason.join("");
+  return `${reason.slice(0, MAX_AGENT_REASON_LENGTH - 1).join("")}\u2026`;
+}
+function agentReasonEnv(context, purpose) {
+  return context === void 0 ? void 0 : { [AGENT_REASON_ENV_VAR]: formatAgentReason(purpose, context) };
+}
+
 // src/resolver/resolver.ts
 async function resolveSecrets(refs, options) {
   const context = {
     annotate: options.annotate,
     runner: options.runner ?? runPassCli,
+    agentReason: options.agentReason,
     resolved: [],
     failures: []
   };
@@ -23905,7 +23962,8 @@ async function resolveOne(ref, context) {
 }
 async function resolveLiteral(envKey, uri, parsed, context) {
   info(`  Resolving ${uri} -> ${envKey}`);
-  const result = await context.runner(["item", "view", "--", uri]);
+  const reasonEnv = agentReasonEnv(context.agentReason, `load ${envKey}`);
+  const result = await context.runner(["item", "view", "--", uri], reasonEnv);
   if (result.exitCode !== 0) {
     const detail = stderrDetail(result);
     context.annotate(`Failed to resolve secret for ${envKey} (${uri}): ${detail}`);
@@ -23922,7 +23980,10 @@ function stripPrintNewline(stdout) {
 }
 async function resolveFieldGlob(envKey, uri, context) {
   const globUri = uri.raw;
-  const listing = await context.runner(["item", "view", "--output", "json", "--", uri.itemUri]);
+  const listing = await context.runner(
+    ["item", "view", "--output", "json", "--", uri.itemUri],
+    agentReasonEnv(context.agentReason, `list fields to load ${envKey}_*`)
+  );
   if (listing.exitCode !== 0) {
     const detail = stderrDetail(listing);
     context.annotate(`Failed to list fields for ${uri.itemUri}: ${detail}`);
@@ -24058,7 +24119,10 @@ async function injectTemplate(options) {
   const outputPath = deriveOutputPath(templatePath, options.outputPathInput);
   info(`Injecting secrets into template: ${templatePath} -> ${outputPath}`);
   const runner = options.runner ?? runPassCli;
-  const result = await runner(["inject", "--force", "-i", templatePath, "-o", outputPath]);
+  const result = await runner(
+    ["inject", "--force", "-i", templatePath, "-o", outputPath],
+    agentReasonEnv(options.agentReason, `render ${templatePath}`)
+  );
   if (result.exitCode !== 0) {
     const detail = stderrDetail(result);
     throw new Error(`Failed to inject secrets into template ${templatePath}: ${detail}`);
@@ -24133,6 +24197,7 @@ function formatFailure(failure) {
 // src/main.ts
 var RESOLVED_KEYS_OUTPUT = "resolved-keys";
 async function run() {
+  let stepScopedSession;
   try {
     const inputs = readInputs();
     await ensurePassCli({
@@ -24140,11 +24205,13 @@ async function run() {
       hash: inputs.passCliHash,
       platform: inputs.platform
     });
-    await establishSession(inputs.pat);
+    const session = await establishSession(inputs.pat, void 0, { shareWithLaterSteps: inputs.exportEnv });
+    if (!inputs.exportEnv && session.owned) stepScopedSession = session;
     const annotate = inputs.strict ? error : warning;
+    const agentReason = agentReasonContext(inputs.agentReason, process.env);
     const refs = findSecretRefs(process.env);
     if (refs.length === 0) info("No pass:// references found in environment variables");
-    const report = await resolveSecrets(refs, { annotate });
+    const report = await resolveSecrets(refs, { annotate, agentReason });
     exportSecrets(report.resolved, { maskValues: inputs.maskValues, exportEnv: inputs.exportEnv });
     setOutput(RESOLVED_KEYS_OUTPUT, resolvedKeysCsv(report.resolved));
     if (!reportFailures(report, inputs.strict, annotate)) return;
@@ -24153,11 +24220,14 @@ async function run() {
       await injectTemplate({
         templatePath: inputs.envTemplate,
         outputPathInput: inputs.outputPath,
-        maskValues: inputs.maskValues
+        maskValues: inputs.maskValues,
+        agentReason
       });
     }
   } catch (err) {
     setFailed(err instanceof Error ? err.message : String(err));
+  } finally {
+    if (stepScopedSession) await endSessionNow(stepScopedSession);
   }
 }
 function reportFailures(report, strict, annotate) {

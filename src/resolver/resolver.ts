@@ -2,6 +2,7 @@ import * as core from '@actions/core'
 import { runPassCli, stderrDetail, type CliRunner } from '../pass-cli.ts'
 import { sanitizeSuffix } from './sanitize.ts'
 import { troubleshootingHints } from '../hints.ts'
+import { agentReasonEnv } from '../domain/agent-reason.ts'
 import type { SecretRef } from './env-scan.ts'
 import type { PassUri } from '../domain/pass-uri.ts'
 import type { ResolutionReport, ResolvedSecret, ResolutionFailure } from '../domain/resolution.ts'
@@ -10,11 +11,14 @@ export interface ResolverOptions {
   /** Emits one failure-annotation line (core.error in strict mode, core.warning otherwise). */
   readonly annotate: (message: string) => void
   readonly runner?: CliRunner
+  /** Run context for agent-token audit reasons (see domain/agent-reason.ts). */
+  readonly agentReason?: string
 }
 
 interface ResolverContext {
   readonly annotate: (message: string) => void
   readonly runner: CliRunner
+  readonly agentReason: string | undefined
   readonly resolved: ResolvedSecret[]
   readonly failures: ResolutionFailure[]
 }
@@ -33,6 +37,7 @@ export async function resolveSecrets(
   const context: ResolverContext = {
     annotate: options.annotate,
     runner: options.runner ?? runPassCli,
+    agentReason: options.agentReason,
     resolved: [],
     failures: [],
   }
@@ -113,7 +118,8 @@ async function resolveLiteral(
   context: ResolverContext,
 ): Promise<void> {
   core.info(`  Resolving ${uri} -> ${envKey}`)
-  const result = await context.runner(['item', 'view', '--', uri])
+  const reasonEnv = agentReasonEnv(context.agentReason, `load ${envKey}`)
+  const result = await context.runner(['item', 'view', '--', uri], reasonEnv)
   if (result.exitCode !== 0) {
     const detail = stderrDetail(result)
     context.annotate(`Failed to resolve secret for ${envKey} (${uri}): ${detail}`)
@@ -137,7 +143,10 @@ export function stripPrintNewline(stdout: string): string {
 
 async function resolveFieldGlob(envKey: string, uri: PassUri, context: ResolverContext): Promise<void> {
   const globUri = uri.raw
-  const listing = await context.runner(['item', 'view', '--output', 'json', '--', uri.itemUri])
+  const listing = await context.runner(
+    ['item', 'view', '--output', 'json', '--', uri.itemUri],
+    agentReasonEnv(context.agentReason, `list fields to load ${envKey}_*`),
+  )
   if (listing.exitCode !== 0) {
     const detail = stderrDetail(listing)
     context.annotate(`Failed to list fields for ${uri.itemUri}: ${detail}`)

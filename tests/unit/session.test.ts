@@ -1,10 +1,12 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  closeSession,
+  endSessionNow,
   establishSession,
   PAT_FINGERPRINT_FILE,
   SESSION_DIR_OWNED_STATE_KEY,
@@ -139,8 +141,9 @@ test('creates a session dir under RUNNER_TEMP when none is configured', async ()
   process.env.RUNNER_TEMP = runnerTemp
   try {
     const { runner } = fakeRunner({ info: [1, 0] })
-    const dir = await establishSession(PAT, runner)
+    const { dir, owned } = await establishSession(PAT, runner)
     assert.ok(dir.startsWith(runnerTemp), `expected ${dir} under ${runnerTemp}`)
+    assert.equal(owned, true)
     assert.equal(process.env.PROTON_PASS_SESSION_DIR, dir)
     assert.equal(process.env.PROTON_PASS_KEY_PROVIDER, 'fs')
   } finally {
@@ -156,9 +159,59 @@ test('creates the configured session dir when it does not exist yet', async () =
   mkdirSync(join(parent, 'nested'), { recursive: true })
   try {
     const { runner } = fakeRunner({ info: [1, 0] })
-    const dir = await establishSession(PAT, runner)
+    const { dir, owned } = await establishSession(PAT, runner)
     assert.equal(dir, configured)
+    assert.equal(owned, true, 'the action created it, so the action may delete it')
   } finally {
     rmSync(parent, { recursive: true, force: true })
   }
+})
+
+test('shares the session with later steps by default', async () => {
+  const { runner } = fakeRunner({ info: [1, 0] })
+  await establishSession(PAT, runner)
+  const githubEnv = readFileSync(process.env.GITHUB_ENV as string, 'utf8')
+  assert.match(githubEnv, /PROTON_PASS_SESSION_DIR/)
+  assert.match(githubEnv, /PROTON_PASS_KEY_PROVIDER/)
+})
+
+test('a step-scoped session is used by this process but never exported to later steps', async () => {
+  const { runner } = fakeRunner({ info: [1, 0] })
+  await establishSession(PAT, runner, { shareWithLaterSteps: false })
+  assert.equal(process.env.PROTON_PASS_SESSION_DIR, sessionDir)
+  assert.equal(process.env.PROTON_PASS_KEY_PROVIDER, 'fs')
+  assert.equal(readFileSync(process.env.GITHUB_ENV as string, 'utf8'), '')
+})
+
+test('closing an owned session logs out of that exact dir and deletes it', async () => {
+  writeFileSync(join(sessionDir, PAT_FINGERPRINT_FILE), 'fingerprint')
+  const { runner, calls } = fakeRunner({})
+  await closeSession({ dir: sessionDir, owned: true }, runner)
+  assert.deepEqual(commandsOf(calls), ['logout'])
+  assert.equal(calls[0]?.extraEnv?.PROTON_PASS_SESSION_DIR, sessionDir)
+  assert.equal(existsSync(sessionDir), false)
+})
+
+test('closing a caller-provided session keeps the dir and removes only the fingerprint', async () => {
+  writeFileSync(join(sessionDir, PAT_FINGERPRINT_FILE), 'fingerprint')
+  writeFileSync(join(sessionDir, 'session.json'), '{}')
+  const { runner } = fakeRunner({ logout: 1 })
+  await closeSession({ dir: sessionDir, owned: false }, runner)
+  assert.equal(existsSync(join(sessionDir, PAT_FINGERPRINT_FILE)), false)
+  assert.equal(existsSync(join(sessionDir, 'session.json')), true)
+})
+
+test('ending a session early deletes the dir it created and clears the state so the post step skips it', async () => {
+  delete process.env.PROTON_PASS_SESSION_DIR
+  process.env.RUNNER_TEMP = mkdtempSync(join(tmpdir(), 'session-test-rt-'))
+  const { runner } = fakeRunner({ info: [1, 0] })
+  const session = await establishSession(PAT, runner, { shareWithLaterSteps: false })
+  await endSessionNow(session, runner)
+  assert.equal(existsSync(session.dir), false)
+  rmSync(process.env.RUNNER_TEMP, { recursive: true, force: true })
+  delete process.env.RUNNER_TEMP
+  const state = readFileSync(process.env.GITHUB_STATE as string, 'utf8')
+  // The last session-dir entry wins when the post step reads state: it must be empty.
+  const entries = [...state.matchAll(new RegExp(`${SESSION_DIR_STATE_KEY}<<(\\S+)\\n([^]*?)\\n\\1`, 'g'))]
+  assert.equal(entries.at(-1)?.[2], '')
 })

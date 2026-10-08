@@ -19069,8 +19069,6 @@ __export(cleanup_exports, {
   cleanup: () => cleanup
 });
 module.exports = __toCommonJS(cleanup_exports);
-var import_node_fs = require("node:fs");
-var import_node_path = require("node:path");
 
 // node_modules/@actions/core/lib/command.js
 var os = __toESM(require("os"), 1);
@@ -20258,6 +20256,10 @@ function getState(name) {
   return process.env[`STATE_${name}`] || "";
 }
 
+// src/session/session.ts
+var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
+
 // src/pass-cli.ts
 function currentEnv() {
   const env = {};
@@ -20279,23 +20281,10 @@ var runPassCli = async (args, extraEnv) => {
 var PAT_FINGERPRINT_FILE = ".pat-fingerprint";
 var SESSION_DIR_STATE_KEY = "session-dir";
 var SESSION_DIR_OWNED_STATE_KEY = "session-dir-owned";
-
-// src/cleanup.ts
-async function cleanup() {
-  const sessionDir = getState(SESSION_DIR_STATE_KEY);
-  if (!sessionDir) {
-    info("No Proton Pass session state was saved; skipping cleanup");
-    return;
-  }
-  const owned = getState(SESSION_DIR_OWNED_STATE_KEY) === "true";
-  await logout(sessionDir);
-  await removeSessionDir(sessionDir, owned);
-  info("Proton Pass session cleaned up");
-}
-async function logout(sessionDir) {
+async function closeSession(session, runner = runPassCli) {
   try {
-    const result = await runPassCli(["logout"], {
-      PROTON_PASS_SESSION_DIR: sessionDir,
+    const result = await runner(["logout"], {
+      PROTON_PASS_SESSION_DIR: session.dir,
       PROTON_PASS_KEY_PROVIDER: "fs"
     });
     if (result.exitCode !== 0) {
@@ -20304,17 +20293,26 @@ async function logout(sessionDir) {
   } catch (err) {
     warning(`pass-cli logout failed: ${err instanceof Error ? err.message : String(err)}`);
   }
-}
-async function removeSessionDir(sessionDir, owned) {
   try {
-    if (owned) {
-      await import_node_fs.promises.rm(sessionDir, { recursive: true, force: true });
+    if (session.owned) {
+      await import_node_fs.promises.rm(session.dir, { recursive: true, force: true });
       return;
     }
-    await import_node_fs.promises.rm((0, import_node_path.join)(sessionDir, PAT_FINGERPRINT_FILE), { force: true });
+    await import_node_fs.promises.rm((0, import_node_path.join)(session.dir, PAT_FINGERPRINT_FILE), { force: true });
   } catch (err) {
     warning(`Could not remove Proton Pass session state: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+// src/cleanup.ts
+async function cleanup() {
+  const dir = getState(SESSION_DIR_STATE_KEY);
+  if (!dir) {
+    info("No Proton Pass session left to clean up; skipping cleanup");
+    return;
+  }
+  await closeSession({ dir, owned: getState(SESSION_DIR_OWNED_STATE_KEY) === "true" });
+  info("Proton Pass session cleaned up");
 }
 void cleanup();
 // Annotate the CommonJS export names for ESM import in node:

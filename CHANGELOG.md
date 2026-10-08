@@ -31,7 +31,8 @@ working without changes. `v1.0.0` remains the bash implementation.
   when nothing resolved; written even when strict mode fails the step.
 - **Single-line secret values** are byte-for-byte what 1.0.0 exported.
 - **Cleanup:** logout always runs, now as a real `post:` step (equivalent to
-  `if: always()`), and never fails the job.
+  `if: always()`), and never fails the job. In outputs-only mode it runs
+  before the step ends instead, as 1.0.0's did.
 
 ### New
 
@@ -39,6 +40,19 @@ working without changes. `v1.0.0` remains the bash implementation.
   export and consume secrets only as step outputs. (The upstream
   `protonpass/load-secret-action` defaults this to `false`; this action keeps
   `true` so existing workflows are unaffected.)
+- **Outputs-only mode leaves nothing behind.** With `export-env: false` the
+  `pass-cli` session is not exported to later steps either: it is logged out,
+  and its directory and key file deleted, before the step ends. Later steps,
+  third-party actions included, cannot read the vault through it. A
+  `PROTON_PASS_SESSION_DIR` that already existed is shared on purpose and is
+  left for the post step.
+- **Agent-token audit reasons (`agent-reason` input).** Every `item view` and
+  `inject` call carries `PROTON_PASS_AGENT_REASON`, so Proton Pass agent
+  tokens (`pass-cli agent create`) work without extra setup and each audit-log
+  entry says what was loaded and links to the run attempt, e.g.
+  `load DB_PASSWORD: GitHub Actions run https://github.com/<repo>/actions/runs/<id>/attempts/1 (...)`.
+  `agent-reason` (or `PROTON_PASS_AGENT_REASON` on the step) replaces the run
+  description. Plain personal access tokens ignore it.
 - **Per-variable step outputs.** Every resolved variable is also published
   as a masked step output: `steps.<id>.outputs.<NAME>` — including
   glob-expanded names.
@@ -77,11 +91,11 @@ working without changes. `v1.0.0` remains the bash implementation.
   dropped and reported, which fails the step under `strict` (a warning
   otherwise). 1.0.0 exported both, so environment order picked the value and
   `resolved-keys` listed the name twice. Names compare case-insensitively.
-- **Unrecognized boolean inputs keep their default.** `mask-values`, `strict`
-  and `export-env` take `true` or `false` in any case. Any other value logs a
-  warning and uses the documented default (`true` for all three). 1.0.0
-  treated anything but `true` as false, so a typo such as `mask-values: yes`
-  silently turned masking off.
+- **Unrecognized boolean inputs fail the step.** `mask-values`, `strict`
+  and `export-env` take `true` or `false` in any case. Any other value is an
+  error, because no fallback is safe for all three: 1.0.0 treated anything but
+  `true` as false, so `mask-values: yes` silently turned masking off, while
+  falling back to the default would let `export-env: no` export secrets.
 - **Template output replaces an existing file.** The action passes `--force`
   to `pass-cli inject`, which otherwise refuses to overwrite. In 1.0.0 any
   re-render (a re-run, a persistent self-hosted workspace, an `output-path`
@@ -112,7 +126,8 @@ working without changes. `v1.0.0` remains the bash implementation.
 - **Two extra env vars for later steps.** The action exports
   `PROTON_PASS_SESSION_DIR` and `PROTON_PASS_KEY_PROVIDER=fs` so its `post:`
   cleanup (and any `pass-cli` you run yourself later in the job) finds the
-  session. The session directory is removed when the job ends.
+  session. The session directory is removed when the job ends. Not with
+  `export-env: false`, which ends the session with the step.
 - **Runtime is node24.** GitHub-hosted runners are ready; self-hosted runners
   need `actions/runner` 2.327.1 or newer. bash is no longer required.
 

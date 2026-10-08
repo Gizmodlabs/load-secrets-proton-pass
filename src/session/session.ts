@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstatSync, mkdirSync, chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, chmodSync, mkdtempSync, readFileSync, writeFileSync, promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as core from '@actions/core'
@@ -20,6 +20,22 @@ export const SESSION_DIR_OWNED_STATE_KEY = 'session-dir-owned'
 const OWNER_ONLY_DIR = 0o700
 const OWNER_ONLY_FILE = 0o600
 
+export interface Session {
+  readonly dir: string
+  /** This invocation created the directory, so it may delete it. */
+  readonly owned: boolean
+}
+
+export interface SessionOptions {
+  /**
+   * Export PROTON_PASS_SESSION_DIR and PROTON_PASS_KEY_PROVIDER to later
+   * steps, so their own pass-cli calls (and a later invocation of this
+   * action) reuse the session. Off in outputs-only mode, where nothing the
+   * step sets up may outlive it.
+   */
+  readonly shareWithLaterSteps: boolean
+}
+
 /**
  * Ensure an authenticated pass-cli session bound to this exact PAT.
  *
@@ -29,23 +45,27 @@ const OWNER_ONLY_FILE = 0o600
  * never resolved against a session that does not match the token we were
  * handed.
  *
- * Returns the session directory (also saved to action state for cleanup).
+ * The session directory is saved to action state for cleanup before login.
  */
-export async function establishSession(pat: string, runner: CliRunner = runPassCli): Promise<string> {
+export async function establishSession(
+  pat: string,
+  runner: CliRunner = runPassCli,
+  options: SessionOptions = { shareWithLaterSteps: true },
+): Promise<Session> {
   const session = prepareSessionDir()
-  const { sessionDir } = session
+  const sessionDir = session.dir
   // Save cleanup state before authentication. A successful login followed by
   // a failed probe must still be able to clean up the directory it created.
   core.saveState(SESSION_DIR_STATE_KEY, sessionDir)
   core.saveState(SESSION_DIR_OWNED_STATE_KEY, String(session.owned))
-  exportSessionEnv(sessionDir)
+  pointPassCliAt(sessionDir, options.shareWithLaterSteps)
 
   const fingerprint = patFingerprint(pat)
   const probe = await runner(['info'])
 
   if (probe.exitCode === 0 && recordedFingerprint(sessionDir) === fingerprint) {
     core.info('pass-cli session already active for this token, skipping login')
-    return sessionDir
+    return session
   }
 
   if (probe.exitCode === 0) {
@@ -73,29 +93,63 @@ export async function establishSession(pat: string, runner: CliRunner = runPassC
 
   writeFileSync(join(sessionDir, PAT_FINGERPRINT_FILE), fingerprint, { mode: OWNER_ONLY_FILE })
   core.info('Authenticated with Proton Pass')
-  return sessionDir
+  return session
+}
+
+/**
+ * Log out, then remove what this invocation created: the whole directory
+ * when it made it, else only the fingerprint, so a caller-provided directory
+ * survives. Never throws: a failed cleanup is a warning, not a failed job.
+ */
+export async function closeSession(session: Session, runner: CliRunner = runPassCli): Promise<void> {
+  try {
+    const result = await runner(['logout'], {
+      PROTON_PASS_SESSION_DIR: session.dir,
+      PROTON_PASS_KEY_PROVIDER: 'fs',
+    })
+    if (result.exitCode !== 0) {
+      core.warning(`pass-cli logout exited with code ${result.exitCode} (continuing)`)
+    }
+  } catch (err) {
+    core.warning(`pass-cli logout failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  try {
+    if (session.owned) {
+      await fs.rm(session.dir, { recursive: true, force: true })
+      return
+    }
+    await fs.rm(join(session.dir, PAT_FINGERPRINT_FILE), { force: true })
+  } catch (err) {
+    core.warning(`Could not remove Proton Pass session state: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/**
+ * End the session before the step finishes (outputs-only mode) and clear the
+ * saved state, so the post step finds nothing left to do.
+ */
+export async function endSessionNow(session: Session, runner: CliRunner = runPassCli): Promise<void> {
+  await closeSession(session, runner)
+  core.saveState(SESSION_DIR_STATE_KEY, '')
+  core.info('Proton Pass session ended; later steps cannot use it')
 }
 
 export function patFingerprint(pat: string): string {
   return createHash('sha256').update(pat).digest('hex')
 }
 
-interface PreparedSessionDir {
-  readonly sessionDir: string
-  readonly owned: boolean
-}
-
-function prepareSessionDir(): PreparedSessionDir {
+function prepareSessionDir(): Session {
   const configured = process.env.PROTON_PASS_SESSION_DIR
   if (configured) {
     rejectSymlink(configured)
     const existed = directoryExists(configured)
     mkdirSync(configured, { recursive: true, mode: OWNER_ONLY_DIR })
     chmodSync(configured, OWNER_ONLY_DIR)
-    return { sessionDir: configured, owned: !existed }
+    return { dir: configured, owned: !existed }
   }
   const base = process.env.RUNNER_TEMP || tmpdir()
-  return { sessionDir: mkdtempSync(join(base, 'proton-pass-session-')), owned: true }
+  return { dir: mkdtempSync(join(base, 'proton-pass-session-')), owned: true }
 }
 
 function directoryExists(dir: string): boolean {
@@ -119,10 +173,12 @@ function rejectSymlink(dir: string): void {
   }
 }
 
-function exportSessionEnv(sessionDir: string): void {
+/** This process's pass-cli calls always use the session; later steps only when shared. */
+function pointPassCliAt(sessionDir: string, shareWithLaterSteps: boolean): void {
   process.env.PROTON_PASS_SESSION_DIR = sessionDir
-  core.exportVariable('PROTON_PASS_SESSION_DIR', sessionDir)
   process.env.PROTON_PASS_KEY_PROVIDER = 'fs'
+  if (!shareWithLaterSteps) return
+  core.exportVariable('PROTON_PASS_SESSION_DIR', sessionDir)
   core.exportVariable('PROTON_PASS_KEY_PROVIDER', 'fs')
 }
 

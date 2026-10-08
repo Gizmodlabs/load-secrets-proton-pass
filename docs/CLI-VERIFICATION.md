@@ -13,6 +13,7 @@ Verification of the action's scripts against the [official Proton Pass CLI docum
 | Read field value | `pass-cli item view -- "pass://vault/item/field"` (`--` guards against flag-like values) | Same; prints the stored value followed by exactly one newline (`println!`, `pass-cli/src/commands/item/view.rs`), which the action strips | Correct |
 | List item fields (glob) | `pass-cli item view --output json -- "pass://vault/item"` | Same command, and the response schema is now pinned too: see [Item JSON schema](#item-json-schema) | Correct |
 | Inject template | `pass-cli inject --force -i template -o output` | Same. Without `--force` it refuses to replace an existing output file ("Output file already exists"); the file is written with `--file-mode` default `0600`; placeholders match `\{\{\s*(pass://[^}]+)\s*\}\}` (`pass-cli/src/commands/inject.rs`) | Correct |
+| Agent audit reason | `PROTON_PASS_AGENT_REASON` on every `item view` and `inject` call, as `<purpose>: <run context>` cut to 300 chars | Agent sessions (`pass-cli agent create` tokens) refuse `item view`, `inject`, `run` and item writes unless it is set, non-blank, and at most `MAX_REASON_LENGTH` = 300 Rust `chars()`; the reason is stored end-to-end encrypted in the audit log (`agent monitor`). Plain PAT sessions never read or send it (`pass-cli/src/commands/item/agent_monitor.rs`, `pass/src/monitor.rs`, 2.4.2) | Correct |
 | Logout | `pass-cli logout` | Same | Correct |
 
 A real-network installer smoke on 2026-09-03 verified download, SHA-256, and

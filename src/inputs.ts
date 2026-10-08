@@ -16,6 +16,8 @@ export interface ActionInputs {
   readonly strict: boolean
   readonly outputPath: string
   readonly exportEnv: boolean
+  /** Raw `agent-reason`: '' means derive one (see domain/agent-reason.ts). */
+  readonly agentReason: string
 }
 
 /**
@@ -33,6 +35,7 @@ export function readInputs(): ActionInputs {
     strict: booleanInput('strict', true),
     outputPath: core.getInput('output-path'),
     exportEnv: booleanInput('export-env', true),
+    agentReason: core.getInput('agent-reason'),
   }
 }
 
@@ -49,8 +52,9 @@ function readPat(): string {
 
 /**
  * Empty means the documented default; `true` and `false` match in any case.
- * Anything else is almost always a typo, so it keeps the default and warns
- * rather than meaning false: `mask-values: yes` must not turn masking off.
+ * Anything else fails the step, because no guess is safe for every input:
+ * falling back to `false` would let `mask-values: yes` unmask secrets, and
+ * falling back to the default would let `export-env: no` export them.
  */
 function booleanInput(name: string, defaultValue: boolean): boolean {
   const raw = core.getInput(name)
@@ -58,6 +62,5 @@ function booleanInput(name: string, defaultValue: boolean): boolean {
   const normalized = raw.toLowerCase()
   if (normalized === 'true') return true
   if (normalized === 'false') return false
-  core.warning(`Input '${name}' must be true or false, got '${raw}'. Using the default (${defaultValue}).`)
-  return defaultValue
+  throw new Error(`Input '${name}' must be true or false, got '${raw}'.`)
 }

@@ -54,6 +54,7 @@ Token tips:
 - Scope per-vault with `--role viewer` so the token can read but never write, or narrow it to one item with `--item-title "DB password"`.
 - Use short expirations and rotate. `--expiration` takes `1h`, `1d`, `1w`, `1m`, `3m`, `6m` or `1y`. `pass-cli pat renew --personal-access-token-name "github-actions" --expiration 3m` issues a new token string (update the GitHub secret; the old one stops working) and keeps its vault access.
 - Revoke any time: `pass-cli pat list` shows the token's ID, then `pass-cli pat delete --pat-id <ID>`.
+- Want a record of every read? Use an [agent token](#audit-reads-with-an-agent-token) instead: same format, plus an audit log.
 
 ### 3. Add the GitHub secret
 
@@ -94,6 +95,54 @@ Every `pass://` env var on the action step is resolved and re-exported as a regu
 - name: Run migrations
   run: ./migrate.sh   # DB_PASSWORD is in env
 ```
+
+### Outputs-only mode
+
+With `export-env: false` the step hands secrets only to the steps you choose and leaves nothing behind for the rest of the job:
+
+- Resolved values become step outputs only. No env var is exported.
+- The `pass-cli` session ends before the step does: it is logged out, its directory and key file are deleted, and `PROTON_PASS_SESSION_DIR` is never exported. A later step, including a third-party action, cannot read your vault through it.
+
+```yaml
+- name: Load secrets
+  id: secrets
+  uses: gizmodlabs/load-secrets-proton-pass@v1
+  with:
+    personal-access-token: ${{ secrets.PROTON_PASS_PERSONAL_ACCESS_TOKEN }}
+    export-env: false
+  env:
+    DB_PASSWORD: "pass://Production/Database/password"
+
+- name: Run migrations
+  run: ./migrate.sh
+  env:
+    DB_PASSWORD: ${{ steps.secrets.outputs.DB_PASSWORD }}   # only this step gets it
+
+- uses: some-org/some-action@<sha>   # sees neither DB_PASSWORD nor a pass-cli session
+```
+
+If `PROTON_PASS_SESSION_DIR` already points at an existing directory (for example one `protonpass/install-cli-action` logged into), that session is shared on purpose, so the action leaves it for the post step to log out when the job ends.
+
+Pair this with a token that can read only what the workflow needs: a viewer-role PAT scoped to one vault or item, or an [agent token](#audit-reads-with-an-agent-token) so every read is logged.
+
+### Audit reads with an agent token
+
+A Proton Pass agent is a personal access token whose reads are recorded in an audit log, each with a reason. Create one and grant it read access:
+
+```bash
+pass-cli agent create github-actions --expiration 3m
+pass-cli agent access grant github-actions --vault-name "Production" --role viewer
+```
+
+`agent create` prints JSON whose `token` field reads `PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_xxxx::TOKENKEY`. Store the part after `=` as a GitHub secret and pass it as `personal-access-token`. No other setting is needed: the action sends a reason with every read, and `pass-cli` uses it only for agent tokens.
+
+By default each reason says what the read loads and links to the exact run attempt:
+
+```text
+load DB_PASSWORD: GitHub Actions run https://github.com/acme/api/actions/runs/123456789/attempts/1 (workflow "Deploy" #42, ref main, actor octocat)
+```
+
+Glob listings read `list fields to load DB_*: …` and templates `render .env.template: …`. Set `agent-reason` (or `PROTON_PASS_AGENT_REASON` on the step) to replace the part after the colon. A reason over `pass-cli`'s 300-character limit is cut from the end, so the purpose and the run URL survive. Review the log with `pass-cli agent monitor github-actions`.
 
 ### Pin the CLI version and hash
 
@@ -224,9 +273,10 @@ The rendered file replaces any existing file at the output path and is written w
 | `mask-values` | No | `true` | Mask resolved values in workflow logs |
 | `strict` | No | `true` | Fail the step when any `pass://` URI cannot be resolved. Set `false` for best-effort mode: failures become warnings and the step continues |
 | `output-path` | No | `''` | Where to write the rendered template. Defaults to stripping `.template`/`.tpl`, else `<input>.resolved`. |
-| `export-env` | No | `true` | Export resolved secrets as env vars for subsequent steps. Set `false` to consume them only as step outputs. (Upstream `protonpass/load-secret-action` defaults this to `false`; this action defaults to `true` for compatibility with its own earlier releases.) |
+| `export-env` | No | `true` | Export resolved secrets as env vars for subsequent steps. Set `false` for [outputs-only mode](#outputs-only-mode): step outputs only, and the `pass-cli` session ends with the step. (Upstream `protonpass/load-secret-action` defaults this to `false`; this action defaults to `true` for compatibility with its own earlier releases.) |
+| `agent-reason` | No | `''` | Audit reason for reads made with an [agent token](#audit-reads-with-an-agent-token). Empty → `PROTON_PASS_AGENT_REASON` from the step env, else a description of the run. Each read prefixes what it loads. Plain PATs ignore it. |
 
-Boolean inputs take `true` or `false` in any case. Any other value logs a warning and keeps the default, so a typo can never switch masking or strict mode off.
+Boolean inputs take `true` or `false` in any case. Any other value fails the step, so a typo can never switch masking or strict mode off, or export secrets you meant to keep in step outputs.
 
 ## Outputs
 
@@ -263,6 +313,7 @@ Ready-to-copy workflow files live in [`examples/`](examples/):
 | [`basic-usage.yml`](examples/basic-usage.yml) | Load a couple of secrets and use them |
 | [`multi-service.yml`](examples/multi-service.yml) | Load secrets for multiple services in one step |
 | [`env-template.yml`](examples/env-template.yml) | Inject secrets into a `.env` template file |
+| [`outputs-only-agent.yml`](examples/outputs-only-agent.yml) | Hardened: audited agent token, secrets passed only to the steps that need them |
 
 ## Local development
 

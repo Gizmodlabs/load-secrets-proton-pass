@@ -3,12 +3,23 @@
 // tests/mock-pass-cli.sh from the bash version, plus a multiline PEM item.
 // Like the real CLI, `item view` prints the stored value followed by one newline.
 // Understands the `--` argument separator the action now always passes.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { PEM_KEY } from './pem-fixture.mjs'
 import { loginItem, customItem } from './item-json.mjs'
 
 const argv = process.argv.slice(2)
 const command = argv[0]
+
+// Opt-in call log for tests: every invocation, in order, with the audit
+// reason and session dir it saw.
+if (process.env.MOCK_PASS_CLI_CALL_LOG) {
+  const entry = {
+    args: argv,
+    reason: process.env.PROTON_PASS_AGENT_REASON ?? null,
+    sessionDir: process.env.PROTON_PASS_SESSION_DIR ?? null,
+  }
+  appendFileSync(process.env.MOCK_PASS_CLI_CALL_LOG, `${JSON.stringify(entry)}\n`)
+}
 
 function out(text) {
   process.stdout.write(text)
@@ -110,6 +121,18 @@ function inject(args) {
   process.exit(0)
 }
 
+// Agent tokens (pass-cli agent_monitor.rs): `item view` and `inject` need a
+// non-blank PROTON_PASS_AGENT_REASON of at most 300 chars; plain PATs ignore it.
+function auditedRead() {
+  const reason = process.env.PROTON_PASS_AGENT_REASON
+  if (process.env.MOCK_PASS_CLI_AGENT !== 'true') return
+  if (reason === undefined) {
+    fail('Agent sessions must set the PROTON_PASS_AGENT_REASON environment variable before running commands.')
+  }
+  if (reason.trim() === '') fail('PROTON_PASS_AGENT_REASON is set but empty.')
+  if (Array.from(reason).length > 300) fail(`PROTON_PASS_AGENT_REASON is too long (${Array.from(reason).length} characters).`)
+}
+
 switch (command) {
   case 'login':
     if (process.env.MOCK_PASS_CLI_FAIL_LOGIN === 'true') fail('Login failed (mock)')
@@ -134,10 +157,14 @@ switch (command) {
     process.exit(0)
     break
   case 'item':
-    if (argv[1] === 'view') itemView(argv.slice(2))
+    if (argv[1] === 'view') {
+      auditedRead()
+      itemView(argv.slice(2))
+    }
     fail(`Unknown item subcommand: ${argv[1]}`)
     break
   case 'inject':
+    auditedRead()
     inject(argv.slice(1))
     break
   default:

@@ -1,0 +1,48 @@
+# Hardened setup: an audited agent token, and secrets handed only to the
+# steps that need them.
+#
+# Run these on your own machine (one-time setup):
+#
+#   pass-cli agent create github-actions --expiration 3m
+#   pass-cli agent access grant github-actions --vault-name "Production" --role viewer
+#
+# `agent create` prints JSON whose token field reads
+# PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_xxxx::TOKENKEY. Copy the part after
+# `=` into your repository's secrets as PROTON_PASS_AGENT_TOKEN.
+#
+# Every read lands in the agent's audit log with a reason naming the env var
+# and linking to this run. Review it with:
+#
+#   pass-cli agent monitor github-actions
+
+name: Deploy (outputs only, audited)
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Load secrets
+        id: secrets
+        uses: gizmodlabs/load-secrets-proton-pass@v1
+        with:
+          personal-access-token: ${{ secrets.PROTON_PASS_AGENT_TOKEN }}
+          # Step outputs only; the pass-cli session ends with this step.
+          export-env: false
+        env:
+          DB_PASSWORD: "pass://Production/Database/password"
+          DEPLOY_KEY: "pass://Production/Deploy/private-key"
+
+      - name: Run migrations
+        run: ./migrate.sh
+        env:
+          DB_PASSWORD: ${{ steps.secrets.outputs.DB_PASSWORD }}
+
+      - name: Deploy
+        run: ./deploy.sh
+        env:
+          DEPLOY_KEY: ${{ steps.secrets.outputs.DEPLOY_KEY }}

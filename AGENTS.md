@@ -34,9 +34,9 @@ Workflows pin every action to a full commit SHA, and the `workflows` job in `tes
 
 Domain model first, then orchestration:
 
-- `src/domain/` — `PassUri` (parse + classify: literal / field-glob / invalid wildcards; greedy vault parity with the old bash regex), `InstallerSpec`, `ResolutionReport` (failures carry name + URI + error, never values).
+- `src/domain/` — `PassUri` (parse + classify: literal / field-glob / invalid wildcards; greedy vault parity with the old bash regex), `InstallerSpec`, `ResolutionReport` (failures carry name + URI + error, never values), `agent-reason` (audit reason per read: `<purpose>: <run context>`, cut to pass-cli's 300 chars).
 - `src/installer/` — platform detection (5 targets incl. `windows-x86_64`); **GitHub Releases** as the only source: `release.ts` builds asset URLs, resolves `latest` via the `/releases/latest` 302 `Location` (no REST API → no rate limit), and takes the expected SHA-256 from the caller's `hash` input or the asset's `.sha256` sidecar; `install.ts` downloads, **fail-closed verifies** (mismatch deletes the file; no expected hash ⇒ abort), caches, `addPath`. `DEFAULT_PASS_CLI_VERSION` (pinned) applies when the input is empty. Pre-installed policy: unset/`latest` accept any `pass-cli` on PATH (this is how tests inject the mock); explicit versions must match `--version` output or are reinstalled. Proton's `versions.json` is NOT used — it is latest-only.
-- `src/session/` — session dir setup (symlink-rejected, 0700) and login **bound to the PAT identity**: a SHA-256 fingerprint of the PAT is stored in the session dir; a valid session with a different/unknown fingerprint is logged out and replaced. Session ownership is saved before login so the post step cleans only the exact directory this invocation created.
+- `src/session/` — session dir setup (symlink-rejected, 0700) and login **bound to the PAT identity**: a SHA-256 fingerprint of the PAT is stored in the session dir; a valid session with a different/unknown fingerprint is logged out and replaced. Session ownership is saved before login so the post step cleans only the exact directory this invocation created. With `export-env: false` the session is step-scoped: never exported to `$GITHUB_ENV`, and ended (logout + dir removal + state cleared) in main's `finally` when the action created the dir; a pre-existing `PROTON_PASS_SESSION_DIR` is left for the post step.
 - `src/resolver/` — env scan (full 3-segment URIs only; others silently ignored), literal + glob resolution, suffix sanitization, and collision detection (within one glob and across references, case-insensitive).
 - `src/export/` — masks (whole value + per line) then writes via `core.setOutput`/`core.exportVariable` **only** — never raw appends to `$GITHUB_OUTPUT`/`$GITHUB_ENV` (heredoc protocol keeps multiline secrets intact).
 - `src/template/` — `pass-cli inject --force` template rendering; output path = explicit input > strip `.template`/`.tpl` > `+.resolved`. The template is read before rendering; masking recovers each injected value by matching the output against the template's literal text (falls back to `KEY=` lines with a warning). Template failures are hard errors regardless of `strict`.
@@ -49,6 +49,8 @@ Key cross-cutting points:
 - **Resolved values are the stored bytes.** pass-cli prints a value plus one `\n` (`println!`); `stripPrintNewline` in `src/resolver/resolver.ts` removes exactly that newline and nothing else, so PEM/SSH keys keep their own final newline. Never trim beyond that.
 - **`export-env` defaults to `true`** (unlike upstream protonpass/load-secret-action) to preserve this action's env-var contract. Step outputs (per-var + `resolved-keys`) are always written.
 - **Masking is opt-out** (`mask-values: true` default); the PAT is always masked.
+- **Boolean inputs fail closed:** `true`/`false` in any case, anything else fails the step (no fallback is safe for every input).
+- **Every `item view` and `inject` carries `PROTON_PASS_AGENT_REASON`** so agent tokens work; pass-cli never reads or sends it for plain PATs. Context precedence: `agent-reason` input > step env > run description.
 - `resolved-keys` is written **before** a strict-mode failure so `if: always()` steps can inspect it.
 
 ## Testing model
@@ -57,7 +59,7 @@ Key cross-cutting points:
 
 - `tests/unit/` — import `src/*.ts` directly (node's native type stripping; relative imports need explicit `.ts` extensions).
 - `tests/integration/` — the ported bash behavioral spec (22 scenarios) + regression tests for the five critical fixes, run against `dist/`.
-- Mock new URI shapes by adding entries in `tests/fixtures/mock-pass-cli.mjs` (`ITEM_JSON` / `FIELD_VALUES`, `INJECT_VALUES` for templates). The mock mirrors real CLI behavior that the action depends on: `--version` prints `Proton Pass CLI <x.y.z> (<hash>)`, and `inject` refuses to overwrite an existing file without `--force`. Check new assumptions against the pass-cli source and record them in `docs/CLI-VERIFICATION.md`.
+- Mock new URI shapes by adding entries in `tests/fixtures/mock-pass-cli.mjs` (`ITEM_JSON` / `FIELD_VALUES`, `INJECT_VALUES` for templates). `MOCK_PASS_CLI_AGENT=true` makes reads enforce agent-session reason rules; `MOCK_PASS_CLI_CALL_LOG=<file>` records every invocation in order (args, reason, session dir). The mock mirrors real CLI behavior that the action depends on: `--version` prints `Proton Pass CLI <x.y.z> (<hash>)`, and `inject` refuses to overwrite an existing file without `--force`. Check new assumptions against the pass-cli source and record them in `docs/CLI-VERIFICATION.md`.
 - `tests/fixtures/install-mock.mjs` installs the mock in smoke workflows via `$GITHUB_PATH`.
 
 ## Constraints worth remembering

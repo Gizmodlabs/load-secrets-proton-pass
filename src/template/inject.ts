@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import * as core from '@actions/core'
 import { runPassCli, stderrDetail, type CliRunner } from '../pass-cli.ts'
 import { maskValue } from '../export/exporter.ts'
+import { agentReasonEnv } from '../domain/agent-reason.ts'
 
 /**
  * The placeholder pattern pass-cli itself matches (`compile_pass_uri_regex`
@@ -16,6 +17,8 @@ export interface TemplateOptions {
   readonly outputPathInput: string
   readonly maskValues: boolean
   readonly runner?: CliRunner
+  /** Run context for agent-token audit reasons (see domain/agent-reason.ts). */
+  readonly agentReason?: string
 }
 
 /**
@@ -36,7 +39,10 @@ export async function injectTemplate(options: TemplateOptions): Promise<string> 
   // --force: pass-cli refuses to replace an existing output file without it,
   // so re-rendering (a second run, a persistent self-hosted workspace, an
   // explicit output-path) would otherwise fail.
-  const result = await runner(['inject', '--force', '-i', templatePath, '-o', outputPath])
+  const result = await runner(
+    ['inject', '--force', '-i', templatePath, '-o', outputPath],
+    agentReasonEnv(options.agentReason, `render ${templatePath}`),
+  )
   if (result.exitCode !== 0) {
     const detail = stderrDetail(result)
     throw new Error(`Failed to inject secrets into template ${templatePath}: ${detail}`)

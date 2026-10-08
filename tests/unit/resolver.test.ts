@@ -404,3 +404,34 @@ test('output names collide case-insensitively (step outputs and Windows env are 
   assert.equal(report.failures.length, 2)
   assert.ok(lines.some(line => line.includes('produces db_host, DB_HOST')))
 })
+
+test('every read carries an agent audit reason naming what it loads', async () => {
+  const reasons: Array<[string, string | undefined]> = []
+  const runner: CliRunner = async (args, extraEnv) => {
+    reasons.push([args.join(' '), extraEnv?.PROTON_PASS_AGENT_REASON])
+    const stdout = args.includes('json') ? JSON.stringify(loginItem('db', { builtins: { username: 'u' } })) : 'v\n'
+    return { exitCode: 0, stdout, stderr: '' }
+  }
+  const { annotate } = collectAnnotations()
+  await resolveSecrets(refsFor({ API_KEY: 'pass://Vault/Api/key', DB: 'pass://Vault/Db/*' }), {
+    annotate,
+    runner,
+    agentReason: 'Nightly deploy',
+  })
+  assert.deepEqual(reasons, [
+    ['item view -- pass://Vault/Api/key', 'load API_KEY: Nightly deploy'],
+    ['item view --output json -- pass://Vault/Db', 'list fields to load DB_*: Nightly deploy'],
+    ['item view -- pass://Vault/Db/username', 'load DB_USERNAME: Nightly deploy'],
+  ])
+})
+
+test('no agent reason is set when none is configured', async () => {
+  const extraEnvs: Array<Record<string, string> | undefined> = []
+  const runner: CliRunner = async (_args, extraEnv) => {
+    extraEnvs.push(extraEnv)
+    return { exitCode: 0, stdout: 'v\n', stderr: '' }
+  }
+  const { annotate } = collectAnnotations()
+  await resolveSecrets(refsFor({ KEY: 'pass://Vault/Item/key' }), { annotate, runner })
+  assert.deepEqual(extraEnvs, [undefined])
+})

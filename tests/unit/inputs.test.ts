@@ -12,6 +12,7 @@ const INPUT_KEYS = [
   'INPUT_STRICT',
   'INPUT_OUTPUT-PATH',
   'INPUT_EXPORT-ENV',
+  'INPUT_AGENT-REASON',
   PAT_ENV_VAR,
 ]
 let saved: Record<string, string | undefined> = {}
@@ -67,22 +68,6 @@ test('boolean defaults are unchanged: mask-values, strict, export-env all defaul
   assert.equal(inputs.exportEnv, true)
 })
 
-/** Capture the workflow commands (::warning:: etc.) @actions/core writes to stdout. */
-function captureStdout(run: () => void): string {
-  const chunks: string[] = []
-  const original = process.stdout.write.bind(process.stdout)
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    chunks.push(String(chunk))
-    return true
-  }) as typeof process.stdout.write
-  try {
-    run()
-  } finally {
-    process.stdout.write = original
-  }
-  return chunks.join('')
-}
-
 test('boolean inputs accept true and false in any case', () => {
   process.env[PAT_ENV_VAR] = 'pst_env::KEY'
   process.env['INPUT_MASK-VALUES'] = 'FALSE'
@@ -94,19 +79,21 @@ test('boolean inputs accept true and false in any case', () => {
   assert.equal(inputs.exportEnv, false)
 })
 
-test('an unrecognized boolean keeps the documented default and warns instead of meaning false', () => {
-  process.env[PAT_ENV_VAR] = 'pst_env::KEY'
-  process.env['INPUT_MASK-VALUES'] = 'yes'
-  process.env['INPUT_STRICT'] = '0'
-  process.env['INPUT_EXPORT-ENV'] = 'ture'
-  let inputs: ReturnType<typeof readInputs> | undefined
-  const stdout = captureStdout(() => {
-    inputs = readInputs()
+for (const [input, value] of [
+  ['mask-values', 'yes'],
+  ['strict', '0'],
+  ['export-env', 'no'],
+] as const) {
+  test(`an unrecognized boolean fails instead of guessing: ${input}: ${value}`, () => {
+    process.env[PAT_ENV_VAR] = 'pst_env::KEY'
+    process.env[`INPUT_${input.toUpperCase()}`] = value
+    assert.throws(() => readInputs(), new RegExp(`Input '${input}' must be true or false, got '${value}'\\.`))
   })
-  assert.equal(inputs?.maskValues, true, 'a typo must never turn masking off')
-  assert.equal(inputs?.strict, true, 'nor strict mode')
-  assert.equal(inputs?.exportEnv, true)
-  assert.match(stdout, /::warning::Input 'mask-values' must be true or false, got 'yes'\. Using the default \(true\)\./)
-  assert.match(stdout, /::warning::Input 'strict' must be true or false, got '0'/)
-  assert.match(stdout, /::warning::Input 'export-env' must be true or false, got 'ture'/)
+}
+
+test('agent-reason is read raw and defaults to empty', () => {
+  process.env[PAT_ENV_VAR] = 'pst_env::KEY'
+  assert.equal(readInputs().agentReason, '')
+  process.env['INPUT_AGENT-REASON'] = 'Nightly deploy'
+  assert.equal(readInputs().agentReason, 'Nightly deploy')
 })
